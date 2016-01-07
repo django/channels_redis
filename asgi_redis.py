@@ -1,4 +1,5 @@
 from __future__ import unicode_literals
+import pkg_resources
 import binascii
 import math
 import msgpack
@@ -10,7 +11,7 @@ import time
 import uuid
 
 
-__version__ = "0.8"
+__version__ = pkg_resources.require('asgi_redis')[0].version
 
 
 class RedisChannelLayer(object):
