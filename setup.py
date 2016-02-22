@@ -23,5 +23,6 @@ setup(
         'six',
         'redis>=2.10',
         'msgpack-python',
+        'asgiref>=0.9',
     ]
 )
