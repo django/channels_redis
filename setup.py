@@ -1,7 +1,7 @@
 import os
-from setuptools import find_packages, setup
+from setuptools import setup
 
-__version__ = '0.8'
+__version__ = '0.8.1'
 
 # We use the README as the long_description
 readme_path = os.path.join(os.path.dirname(__file__), "README.rst")
@@ -17,7 +17,7 @@ setup(
     long_description=open(readme_path).read(),
     license='BSD',
     zip_safe=False,
-    packages=find_packages(),
+    py_modules=["asgi_redis"],
     include_package_data=True,
     install_requires=[
         'six',
