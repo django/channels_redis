@@ -7,5 +7,5 @@ services:
   - redis-server
 install:
   - if [[ $TRAVIS_PYTHON_VERSION == 2.7 ]]; then pip install unittest2; fi
-  - pip install six
+  - pip install six msgpack-python redis
 script: if [[ $TRAVIS_PYTHON_VERSION == 2.7 ]]; then python -m unittest2; else python -m unittest; fi
