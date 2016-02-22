@@ -163,9 +163,6 @@ class RedisChannelLayer(object):
     def send_group(self, group, message):
         """
         Sends a message to the entire group.
-
-        This base class provides a default implementation; can be overridden
-        to be more efficient by subclasses.
         """
         for channel in self._group_channels(group):
             self.send(channel, message)
