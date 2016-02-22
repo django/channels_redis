@@ -22,7 +22,7 @@ class RedisChannelLayer(object):
 
     blpop_timeout = 5
 
-    def __init__(self, expiry=60, hosts=None, prefix=b"asgi:"):
+    def __init__(self, expiry=60, hosts=None, prefix="asgi:"):
         # Make sure they provided some hosts, or provide a default
         if not hosts:
             hosts = [("localhost", 6379)]
@@ -33,6 +33,7 @@ class RedisChannelLayer(object):
             else:
                 self.hosts.append("redis://%s:%d/0" % (entry[0],entry[1]))
         self.prefix = prefix
+        assert isinstance(self.prefix, six.text_type), "Prefix must be unicode"
         self.expiry = expiry
         # Precalculate some values for ring selection
         self.ring_size = len(self.hosts)
@@ -66,7 +67,7 @@ class RedisChannelLayer(object):
         )
         connection.expire(
             key,
-            self.expiry + 10,
+            self.expiry,
         )
         # Add key to list
         connection.rpush(
@@ -101,17 +102,23 @@ class RedisChannelLayer(object):
             # Shuffle channels to avoid the first ones starving others of workers
             random.shuffle(channels)
             # Pop off any waiting message
+            list_names = [self.prefix + channel for channel in channels]
             if block:
-                result = connection.blpop([self.prefix + channel for channel in channels], timeout=self.blpop_timeout)
+                result = connection.blpop(list_names, timeout=self.blpop_timeout)
             else:
-                result = connection.lpop([self.prefix + channel for channel in channels])
+                # TODO: More efficient non-blocking popping scheme.
+                for list_name in list_names:
+                    result = connection.lpop(list_name)
+                    if result:
+                        result = [list_name, result]
+                        break
             if result:
                 content = connection.get(result[1])
                 # If the content key expired, keep going.
                 if content is None:
                     continue
                 # Return the channel it's from and the message
-                return result[0][len(self.prefix):].decode("utf-8"), self.deserialize(content)
+                return result[0][len(self.prefix):], self.deserialize(content)
             else:
                 return None, None
 
@@ -120,7 +127,7 @@ class RedisChannelLayer(object):
         # Keep making channel names till one isn't present.
         while True:
             random_string = "".join(random.choice(string.ascii_letters) for i in range(8))
-            new_name = pattern.replace(b"?", random_string)
+            new_name = pattern.replace("?", random_string)
             # Get right connection; most uses of this should end up with !
             if new_name.startswith("!"):
                 index = self.consistent_hash(new_name)
