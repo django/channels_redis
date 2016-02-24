@@ -38,6 +38,9 @@ class RedisChannelLayer(object):
         # Precalculate some values for ring selection
         self.ring_size = len(self.hosts)
         self.ring_divisor = int(math.ceil(4096 / float(self.ring_size)))
+        # Register scripts
+        connection = self.connection(None)
+        self.lpopmany = connection.register_script(self.lua_lpopmany)
 
     ### ASGI API ###
 
@@ -106,19 +109,14 @@ class RedisChannelLayer(object):
             if block:
                 result = connection.blpop(list_names, timeout=self.blpop_timeout)
             else:
-                # TODO: More efficient non-blocking popping scheme.
-                for list_name in list_names:
-                    result = connection.lpop(list_name)
-                    if result:
-                        result = [list_name, result]
-                        break
+                result = self.lpopmany(keys=list_names)
             if result:
                 content = connection.get(result[1])
                 # If the content key expired, keep going.
                 if content is None:
                     continue
                 # Return the channel it's from and the message
-                return result[0][len(self.prefix):], self.deserialize(content)
+                return result[0][len(self.prefix):].decode("utf8"), self.deserialize(content)
             else:
                 return None, None
 
@@ -171,15 +169,18 @@ class RedisChannelLayer(object):
         """
         Sends a message to the entire group.
         """
+        # TODO: More efficient implementation (lua script per shard?)
         for channel in self._group_channels(group):
             self.send(channel, message)
+
+    def _group_key(self, group):
+        return ("%s:group:%s" % (self.prefix, group)).encode("utf8")
 
     def _group_channels(self, group):
         """
         Returns an iterable of all channels in the group.
         """
-        key = "%s:group:%s" % (self.prefix, group)
-        key = key.encode("utf8")
+        key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
         # Discard old channels
         connection.zremrangebyscore(key, 0, int(time.time()) - 10)
@@ -203,6 +204,18 @@ class RedisChannelLayer(object):
         Deserializes from a byte string.
         """
         return msgpack.unpackb(message, encoding="utf8")
+
+    ### Redis Lua scripts ###
+
+    lua_lpopmany = """
+        for keyCount = 1, #KEYS do
+            local result = redis.call('LPOP', KEYS[keyCount])
+            if result then
+                return {KEYS[keyCount], result}
+            end
+        end
+        return {nil, nil}
+    """
 
     ### Internal functions ###
 
