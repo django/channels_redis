@@ -1,3 +1,8 @@
+0.8.3 (2016-02-28)
+------------------
+
+* Nonblocking receive_many now uses Lua script rather than for loop.
+
 0.8.2 (2016-02-22)
 ------------------
 
