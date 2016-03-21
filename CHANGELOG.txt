@@ -1,3 +1,10 @@
+0.9.0 (2016-03-21)
+------------------
+
+* Connections now pooled per backend shard
+* Random portion of channel names now 12 characters
+* Implements new ASGI single-response-channel pattern spec
+
 0.8.3 (2016-02-28)
 ------------------
 
