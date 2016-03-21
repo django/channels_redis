@@ -58,7 +58,7 @@ class RedisChannelLayer(object):
         key = self.prefix + uuid.uuid4().hex
         # Pick a connection to the right server - consistent for response
         # channels, random for normal channels
-        if channel.startswith("!"):
+        if "!" in channel:
             index = self.consistent_hash(channel)
             connection = self.connection(index)
         else:
@@ -92,7 +92,7 @@ class RedisChannelLayer(object):
         indexes = {}
         random_index = self.random_index()
         for channel in channels:
-            if channel.startswith("!"):
+            if "!" in channel:
                 indexes.setdefault(self.consistent_hash(channel), []).append(channel)
             else:
                 indexes.setdefault(random_index, []).append(channel)
@@ -125,13 +125,11 @@ class RedisChannelLayer(object):
         # Keep making channel names till one isn't present.
         while True:
             random_string = "".join(random.choice(string.ascii_letters) for i in range(8))
-            new_name = pattern.replace("?", random_string)
-            # Get right connection; most uses of this should end up with !
-            if new_name.startswith("!"):
-                index = self.consistent_hash(new_name)
-                connection = self.connection(index)
-            else:
-                connection = self.connection(None)
+            assert pattern.endswith("!")
+            new_name = pattern + random_string
+            # Get right connection
+            index = self.consistent_hash(new_name)
+            connection = self.connection(index)
             # Check to see if it's in the connected Redis.
             # This fails to stop collisions for sharding where the channel is
             # non-single-listener, but that seems very unlikely.
