@@ -124,7 +124,7 @@ class RedisChannelLayer(object):
         assert isinstance(pattern, six.text_type)
         # Keep making channel names till one isn't present.
         while True:
-            random_string = "".join(random.choice(string.ascii_letters) for i in range(8))
+            random_string = "".join(random.choice(string.ascii_letters) for i in range(12))
             assert pattern.endswith("!")
             new_name = pattern + random_string
             # Get right connection
