@@ -38,6 +38,12 @@ class RedisChannelLayer(object):
         # Precalculate some values for ring selection
         self.ring_size = len(self.hosts)
         self.ring_divisor = int(math.ceil(4096 / float(self.ring_size)))
+        # Create connections ahead of time (they won't call out just yet, but
+        # we want to connection-pool them later)
+        self._connection_list = [
+            redis.Redis.from_url(host)
+            for host in self.hosts
+        ]
         # Register scripts
         connection = self.connection(None)
         self.lpopmany = connection.register_script(self.lua_lpopmany)
@@ -243,7 +249,7 @@ class RedisChannelLayer(object):
         # Catch bad indexes
         if not 0 <= index < self.ring_size:
             raise ValueError("There are only %s hosts - you asked for %s!" % (self.ring_size, index))
-        return redis.Redis.from_url(self.hosts[index])
+        return self._connection_list[index]
 
     def __str__(self):
         return "%s(hosts=%s)" % (self.__class__.__name__, self.hosts)
