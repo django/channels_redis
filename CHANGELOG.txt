@@ -1,3 +1,8 @@
+0.9.1 (2016-03-23)
+------------------
+
+* Remove old group expiry code that was killing groups after 60 seconds.
+
 0.9.0 (2016-03-21)
 ------------------
 

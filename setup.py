@@ -1,7 +1,7 @@
 import os
 from setuptools import setup
 
-__version__ = '0.9.0'
+__version__ = '0.9.1'
 
 # We use the README as the long_description
 readme_path = os.path.join(os.path.dirname(__file__), "README.rst")
