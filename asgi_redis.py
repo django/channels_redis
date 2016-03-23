@@ -186,8 +186,6 @@ class RedisChannelLayer(object):
         """
         key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
-        # Discard old channels
-        connection.zremrangebyscore(key, 0, int(time.time()) - 10)
         # Return current lot
         return [x.decode("utf8") for x in connection.zrange(
             key,
