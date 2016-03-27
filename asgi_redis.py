@@ -154,10 +154,15 @@ class RedisChannelLayer(object):
         """
         key = "%s:group:%s" % (self.prefix, group)
         key = key.encode("utf8")
-        self.connection(self.consistent_hash(group)).zadd(
+        connection = self.connection(self.consistent_hash(group))
+        # Add to sorted set with creation time as timestamp
+        connection.zadd(
             key,
             **{channel: time.time()}
         )
+        # Set sorted set expiration to be group_expiry, since everything in
+        # it at this point is guaranteed to expire before that
+        connection.expire(key, self.group_expiry)
 
     def group_discard(self, group, channel):
         """
