@@ -152,25 +152,29 @@ class RedisChannelLayer(object):
         Adds the channel to the named group for at least 'expiry'
         seconds (expiry defaults to message expiry if not provided).
         """
-        key = "%s:group:%s" % (self.prefix, group)
-        key = key.encode("utf8")
+        group_key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
-        # Add to sorted set with creation time as timestamp
+        # Add to group sorted set with creation time as timestamp
         connection.zadd(
-            key,
+            group_key,
             **{channel: time.time()}
         )
-        # Set sorted set expiration to be group_expiry, since everything in
+        # Set both expiration to be group_expiry, since everything in
         # it at this point is guaranteed to expire before that
-        connection.expire(key, self.group_expiry)
+        connection.expire(group_key, self.group_expiry)
+        # Also add to a normal set that contains all the groups a channel is in
+        # (as yet unused)
+        channel_key = self._channel_groups_key(channel)
+        connection = self.connection(self.consistent_hash(channel))
+        connection.sadd(channel_key, group)
+        connection.expire(channel_key, self.group_expiry)
 
     def group_discard(self, group, channel):
         """
         Removes the channel from the named group if it is in the group;
         does nothing otherwise (does not error)
         """
-        key = "%s:group:%s" % (self.prefix, group)
-        key = key.encode("utf8")
+        key = self._group_key(group)
         self.connection(self.consistent_hash(group)).zrem(
             key,
             channel,
@@ -186,6 +190,9 @@ class RedisChannelLayer(object):
 
     def _group_key(self, group):
         return ("%s:group:%s" % (self.prefix, group)).encode("utf8")
+
+    def _channel_groups_key(self, group):
+        return ("%s:chgroups:%s" % (self.prefix, group)).encode("utf8")
 
     def _group_channels(self, group):
         """
