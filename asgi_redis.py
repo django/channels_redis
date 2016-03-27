@@ -22,7 +22,7 @@ class RedisChannelLayer(object):
 
     blpop_timeout = 5
 
-    def __init__(self, expiry=60, hosts=None, prefix="asgi:"):
+    def __init__(self, expiry=60, hosts=None, prefix="asgi:", group_expiry=86400):
         # Make sure they provided some hosts, or provide a default
         if not hosts:
             hosts = [("localhost", 6379)]
@@ -35,6 +35,7 @@ class RedisChannelLayer(object):
         self.prefix = prefix
         assert isinstance(self.prefix, six.text_type), "Prefix must be unicode"
         self.expiry = expiry
+        self.group_expiry = group_expiry
         # Precalculate some values for ring selection
         self.ring_size = len(self.hosts)
         self.ring_divisor = int(math.ceil(4096 / float(self.ring_size)))
@@ -47,10 +48,11 @@ class RedisChannelLayer(object):
         # Register scripts
         connection = self.connection(None)
         self.lpopmany = connection.register_script(self.lua_lpopmany)
+        self.delprefix = connection.register_script(self.lua_delprefix)
 
     ### ASGI API ###
 
-    extensions = ["groups"]
+    extensions = ["groups", "flush"]
 
     class MessageTooLarge(Exception):
         pass
@@ -115,7 +117,7 @@ class RedisChannelLayer(object):
             if block:
                 result = connection.blpop(list_names, timeout=self.blpop_timeout)
             else:
-                result = self.lpopmany(keys=list_names)
+                result = self.lpopmany(keys=list_names, client=connection)
             if result:
                 content = connection.get(result[1])
                 # If the content key expired, keep going.
@@ -145,7 +147,7 @@ class RedisChannelLayer(object):
 
     ### ASGI Group extension ###
 
-    def group_add(self, group, channel, expiry=None):
+    def group_add(self, group, channel):
         """
         Adds the channel to the named group for at least 'expiry'
         seconds (expiry defaults to message expiry if not provided).
@@ -154,7 +156,7 @@ class RedisChannelLayer(object):
         key = key.encode("utf8")
         self.connection(self.consistent_hash(group)).zadd(
             key,
-            **{channel: time.time() + (expiry or self.expiry)}
+            **{channel: time.time()}
         )
 
     def group_discard(self, group, channel):
@@ -186,12 +188,23 @@ class RedisChannelLayer(object):
         """
         key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
+        # Discard old channels based on group_expiry
+        connection.zremrangebyscore(key, 0, int(time.time()) - self.group_expiry)
         # Return current lot
         return [x.decode("utf8") for x in connection.zrange(
             key,
             0,
             -1,
         )]
+
+    ### Flush extension ###
+
+    def flush(self):
+        """
+        Deletes all messages and groups on all shards.
+        """
+        for connection in self._connection_list:
+            self.delprefix(keys=[], args=[self.prefix+"*"], client=connection)
 
     ### Serialization ###
 
@@ -217,6 +230,13 @@ class RedisChannelLayer(object):
             end
         end
         return {nil, nil}
+    """
+
+    lua_delprefix = """
+        local keys = redis.call('keys', ARGV[1])
+        for i=1,#keys,5000 do
+            redis.call('del', unpack(keys, i, math.min(i+4999, #keys)))
+        end
     """
 
     ### Internal functions ###
