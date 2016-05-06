@@ -57,6 +57,9 @@ class RedisChannelLayer(object):
     class MessageTooLarge(Exception):
         pass
 
+    class ChannelFull(Exception):
+        pass
+
     def send(self, channel, message):
         # Typecheck
         assert isinstance(message, dict), "message is not a dict"

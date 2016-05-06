@@ -1,3 +1,4 @@
+from __future__ import unicode_literals
 import time
 import unittest
 from asgi_redis import RedisChannelLayer
