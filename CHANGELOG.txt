@@ -1,3 +1,13 @@
+0.11.0 (2016-05-07)
+-------------------
+
+* Implement backpressure with per-channel and default capacities.
+
+0.10.0 (2016-03-27)
+-------------------
+
+* Group expiry code re-added and fixed.
+
 0.9.1 (2016-03-23)
 ------------------
 
