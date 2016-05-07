@@ -1,7 +1,7 @@
 import os
 from setuptools import setup
 
-__version__ = '0.10.0'
+__version__ = '0.11.0'
 
 # We use the README as the long_description
 readme_path = os.path.join(os.path.dirname(__file__), "README.rst")
@@ -23,6 +23,6 @@ setup(
         'six',
         'redis>=2.10',
         'msgpack-python',
-        'asgiref>=0.12',
+        'asgiref>=0.13',
     ]
 )
