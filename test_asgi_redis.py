@@ -8,8 +8,9 @@ from asgiref.conformance import ConformanceTestCase
 # Default conformance tests
 class RedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisChannelLayer(expiry=1, group_expiry=2)
+    channel_layer = RedisChannelLayer(expiry=1, group_expiry=2, capacity=5)
     expiry_delay = 1.1
+    capacity_limit = 5
 
     # The functionality this test is for is not yet present (it's not required,
     # and will slow stuff down, so will be optional), but it's here for future reference.

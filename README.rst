@@ -1,6 +1,12 @@
 asgi_redis
 ==========
 
+.. image:: https://api.travis-ci.org/andrewgodwin/asgi_redis.svg
+    :target: https://travis-ci.org/andrewgodwin/asgi_redis
+
+.. image:: https://img.shields.io/pypi/v/asgi_redis.svg
+    :target: https://pypi.python.org/pypi/asgi_redis
+
 An ASGI channel layer that uses Redis as its backing store, and supports
 both a single-server and sharded configurations, as well as group support.
 

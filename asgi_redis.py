@@ -9,12 +9,13 @@ import six
 import string
 import time
 import uuid
+from asgiref.base_layer import BaseChannelLayer
 
 
 __version__ = pkg_resources.require('asgi_redis')[0].version
 
 
-class RedisChannelLayer(object):
+class RedisChannelLayer(BaseChannelLayer):
     """
     ORM-backed channel environment. For development use only; it will span
     multiple processes fine, but it's going to be pretty bad at throughput.
@@ -22,7 +23,13 @@ class RedisChannelLayer(object):
 
     blpop_timeout = 5
 
-    def __init__(self, expiry=60, hosts=None, prefix="asgi:", group_expiry=86400):
+    def __init__(self, expiry=60, hosts=None, prefix="asgi:", group_expiry=86400, capacity=100, channel_capacity=None):
+        super(RedisChannelLayer, self).__init__(
+            expiry=expiry,
+            group_expiry=group_expiry,
+            capacity=capacity,
+            channel_capacity=channel_capacity,
+        )
         # Make sure they provided some hosts, or provide a default
         if not hosts:
             hosts = [("localhost", 6379)]
@@ -34,8 +41,6 @@ class RedisChannelLayer(object):
                 self.hosts.append("redis://%s:%d/0" % (entry[0],entry[1]))
         self.prefix = prefix
         assert isinstance(self.prefix, six.text_type), "Prefix must be unicode"
-        self.expiry = expiry
-        self.group_expiry = group_expiry
         # Precalculate some values for ring selection
         self.ring_size = len(self.hosts)
         self.ring_divisor = int(math.ceil(4096 / float(self.ring_size)))
@@ -47,6 +52,7 @@ class RedisChannelLayer(object):
         ]
         # Register scripts
         connection = self.connection(None)
+        self.chansend = connection.register_script(self.lua_chansend)
         self.lpopmany = connection.register_script(self.lua_lpopmany)
         self.delprefix = connection.register_script(self.lua_delprefix)
 
@@ -54,19 +60,14 @@ class RedisChannelLayer(object):
 
     extensions = ["groups", "flush"]
 
-    class MessageTooLarge(Exception):
-        pass
-
-    class ChannelFull(Exception):
-        pass
-
     def send(self, channel, message):
         # Typecheck
         assert isinstance(message, dict), "message is not a dict"
         assert isinstance(channel, six.text_type), "%s is not unicode" % channel
         # Write out message into expiring key (avoids big items in list)
         # TODO: Use extended set, drop support for older redis?
-        key = self.prefix + uuid.uuid4().hex
+        message_key = self.prefix + uuid.uuid4().hex
+        channel_key = self.prefix + channel
         # Pick a connection to the right server - consistent for response
         # channels, random for normal channels
         if "!" in channel:
@@ -74,25 +75,16 @@ class RedisChannelLayer(object):
             connection = self.connection(index)
         else:
             connection = self.connection(None)
-        # Make a key for the message and set to expire
-        connection.set(
-            key,
-            self.serialize(message),
-        )
-        connection.expire(
-            key,
-            self.expiry,
-        )
-        # Add key to list
-        connection.rpush(
-            self.prefix + channel,
-            key,
-        )
-        # Set list to expire when message does (any later messages will bump this)
-        connection.expire(
-            self.prefix + channel,
-            self.expiry + 10,
-        )
+        # Use the Lua function to do the set-and-push
+        try:
+            self.chansend(
+                keys=[message_key, channel_key],
+                args=[self.serialize(message), self.expiry, self.get_capacity(channel)],
+            )
+        except redis.exceptions.ResponseError as e:
+            # The Lua script handles capacity checking and sends the "full" error back
+            if e.args[0] == "full":
+                raise self.ChannelFull
 
     def receive_many(self, channels, block=False):
         if not channels:
@@ -189,7 +181,10 @@ class RedisChannelLayer(object):
         """
         # TODO: More efficient implementation (lua script per shard?)
         for channel in self._group_channels(group):
-            self.send(channel, message)
+            try:
+                self.send(channel, message)
+            except self.ChannelFull:
+                pass
 
     def _group_key(self, group):
         return ("%s:group:%s" % (self.prefix, group)).encode("utf8")
@@ -236,6 +231,19 @@ class RedisChannelLayer(object):
         return msgpack.unpackb(message, encoding="utf8")
 
     ### Redis Lua scripts ###
+
+    # Single-command channel send. Returns error if over capacity.
+    # Keys: message, channel_list
+    # Args: content, expiry, capacity
+    lua_chansend = """
+        if redis.call('llen', KEYS[2]) >= tonumber(ARGV[3]) then
+            return redis.error_reply("full")
+        end
+        redis.call('set', KEYS[1], ARGV[1])
+        redis.call('expire', KEYS[1], ARGV[2])
+        redis.call('rpush', KEYS[2], KEYS[1])
+        redis.call('expire', KEYS[2], ARGV[2] + 1)
+    """
 
     lua_lpopmany = """
         for keyCount = 1, #KEYS do
