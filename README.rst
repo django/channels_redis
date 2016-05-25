@@ -111,7 +111,19 @@ the SHA256 hash function before being used as an encryption key. Any string
 will work, but the shorter the string, the easier the encryption is to break.
 
 If you're using Django, you may also wish to set this to your site's
-``SECRET_KEY`` setting via the ``CHANNEL_LAYERS`` setting.
+``SECRET_KEY`` setting via the ``CHANNEL_LAYERS`` setting::
+
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "asgi_redis.RedisChannelLayer",
+            "ROUTING": "my_project.routing.channel_routing",
+            "CONFIG": {
+                "hosts": ["redis://:password@127.0.0.1:6379/0"],
+                "symmetric_encryption_keys": [SECRET_KEY],
+            },
+        },
+    }
+
 
 
 TODO
