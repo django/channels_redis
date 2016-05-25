@@ -101,6 +101,9 @@ considered for decryption, so you can rotate keys without downtime - just add
 a new key at the start and move the old one down, then remove the old one
 after the message expiry time has passed.
 
+Data is encrypted both on the wire and at rest in Redis, though we advise
+you also route your Redis connections over TLS for higher security.
+
 Keys **should have at least 32 bytes of entropy** - they are passed through
 the SHA256 hash function before being used as an encryption key. Any string
 will work, but the shorter the string, the easier the encryption is to break.
