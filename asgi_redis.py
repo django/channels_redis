@@ -1,14 +1,18 @@
 from __future__ import unicode_literals
-import pkg_resources
+
+import base64
 import binascii
+import hashlib
 import math
 import msgpack
+import pkg_resources
 import random
 import redis
 import six
 import string
 import time
 import uuid
+
 from asgiref.base_layer import BaseChannelLayer
 
 
@@ -23,7 +27,8 @@ class RedisChannelLayer(BaseChannelLayer):
 
     blpop_timeout = 5
 
-    def __init__(self, expiry=60, hosts=None, prefix="asgi:", group_expiry=86400, capacity=100, channel_capacity=None):
+    def __init__(self, expiry=60, hosts=None, prefix="asgi:", group_expiry=86400, capacity=100, channel_capacity=None,
+                 symmetric_encryption_keys=None):
         super(RedisChannelLayer, self).__init__(
             expiry=expiry,
             group_expiry=group_expiry,
@@ -50,11 +55,26 @@ class RedisChannelLayer(BaseChannelLayer):
             redis.Redis.from_url(host)
             for host in self.hosts
         ]
+        # Decide on a unique client prefix to use in ! sections
+        # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
+        self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
         # Register scripts
         connection = self.connection(None)
         self.chansend = connection.register_script(self.lua_chansend)
         self.lpopmany = connection.register_script(self.lua_lpopmany)
         self.delprefix = connection.register_script(self.lua_delprefix)
+        # See if we can do encryption if they asked
+        if symmetric_encryption_keys:
+            if isinstance(symmetric_encryption_keys, six.string_types):
+                raise ValueError("symmetric_encryption_keys must be a list of possible keys")
+            try:
+                from cryptography.fernet import MultiFernet
+            except ImportError:
+                raise ValueError("Cannot run with encryption without 'cryptography' installed.")
+            sub_fernets = [self.make_fernet(key) for key in symmetric_encryption_keys]
+            self.crypter = MultiFernet(sub_fernets)
+        else:
+            self.crypter = None
 
     ### ASGI API ###
 
@@ -222,12 +242,17 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Serializes message to a byte string.
         """
-        return msgpack.packb(message, use_bin_type=True)
+        value = msgpack.packb(message, use_bin_type=True)
+        if self.crypter:
+            value = self.crypter.encrypt(value)
+        return value
 
     def deserialize(self, message):
         """
         Deserializes from a byte string.
         """
+        if self.crypter:
+            message = self.crypter.decrypt(message, self.expiry + 10)
         return msgpack.unpackb(message, encoding="utf8")
 
     ### Redis Lua scripts ###
@@ -291,6 +316,16 @@ class RedisChannelLayer(BaseChannelLayer):
         if not 0 <= index < self.ring_size:
             raise ValueError("There are only %s hosts - you asked for %s!" % (self.ring_size, index))
         return self._connection_list[index]
+
+    def make_fernet(self, key):
+        """
+        Given a single encryption key, returns a Fernet instance using it.
+        """
+        from cryptography.fernet import Fernet
+        if isinstance(key, six.text_type):
+            key = key.encode("utf8")
+        formatted_key = base64.urlsafe_b64encode(hashlib.sha256(key).digest())
+        return Fernet(formatted_key)
 
     def __str__(self):
         return "%s(hosts=%s)" % (self.__class__.__name__, self.hosts)

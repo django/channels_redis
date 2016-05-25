@@ -29,3 +29,16 @@ class RedisLayerTests(ConformanceTestCase):
         channel, message = self.channel_layer.receive_many(["tgme_test"])
         self.assertIs(channel, None)
         self.assertIs(message, None)
+
+
+# Encrypted variant of conformance tests
+class EncryptedRedisLayerTests(ConformanceTestCase):
+
+    channel_layer = RedisChannelLayer(
+        expiry=1,
+        group_expiry=2,
+        capacity=5,
+        symmetric_encryption_keys=["test", "old"],
+    )
+    expiry_delay = 1.1
+    capacity_limit = 5
