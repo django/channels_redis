@@ -5,7 +5,6 @@ import binascii
 import hashlib
 import math
 import msgpack
-import pkg_resources
 import random
 import redis
 import six
@@ -14,9 +13,6 @@ import time
 import uuid
 
 from asgiref.base_layer import BaseChannelLayer
-
-
-__version__ = pkg_resources.require('asgi_redis')[0].version
 
 
 class RedisChannelLayer(BaseChannelLayer):

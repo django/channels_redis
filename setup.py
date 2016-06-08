@@ -1,5 +1,5 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 
 __version__ = '0.12.0'
 
@@ -17,7 +17,7 @@ setup(
     long_description=open(readme_path).read(),
     license='BSD',
     zip_safe=False,
-    py_modules=["asgi_redis"],
+    packages=find_packages(),
     include_package_data=True,
     install_requires=[
         'six',
