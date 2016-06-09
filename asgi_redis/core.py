@@ -79,14 +79,14 @@ class RedisChannelLayer(BaseChannelLayer):
     def send(self, channel, message):
         # Typecheck
         assert isinstance(message, dict), "message is not a dict"
-        assert isinstance(channel, six.text_type), "%s is not unicode" % channel
+        assert self.valid_channel_name(channel), "Channel name not valid"
         # Write out message into expiring key (avoids big items in list)
         # TODO: Use extended set, drop support for older redis?
         message_key = self.prefix + uuid.uuid4().hex
         channel_key = self.prefix + channel
         # Pick a connection to the right server - consistent for response
         # channels, random for normal channels
-        if "!" in channel:
+        if "!" in channel or "?" in channel:
             index = self.consistent_hash(channel)
             connection = self.connection(index)
         else:
@@ -106,12 +106,12 @@ class RedisChannelLayer(BaseChannelLayer):
         if not channels:
             return None, None
         channels = list(channels)
-        assert all(isinstance(channel, six.text_type) for channel in channels)
+        assert all(self.valid_channel_name(channel) for channel in channels), "One or more channel names invalid"
         # Work out what servers to listen on for the given channels
         indexes = {}
         random_index = self.random_index()
         for channel in channels:
-            if "!" in channel:
+            if "!" in channel or "?" in channel:
                 indexes.setdefault(self.consistent_hash(channel), []).append(channel)
             else:
                 indexes.setdefault(random_index, []).append(channel)
@@ -144,7 +144,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # Keep making channel names till one isn't present.
         while True:
             random_string = "".join(random.choice(string.ascii_letters) for i in range(12))
-            assert pattern.endswith("!")
+            assert pattern.endswith("!") or pattern.endswith("?")
             new_name = pattern + random_string
             # Get right connection
             index = self.consistent_hash(new_name)
@@ -163,6 +163,8 @@ class RedisChannelLayer(BaseChannelLayer):
         Adds the channel to the named group for at least 'expiry'
         seconds (expiry defaults to message expiry if not provided).
         """
+        assert self.valid_group_name(group), "Group name not valid"
+        assert self.valid_channel_name(channel), "Channel name not valid"
         group_key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
         # Add to group sorted set with creation time as timestamp
@@ -185,6 +187,8 @@ class RedisChannelLayer(BaseChannelLayer):
         Removes the channel from the named group if it is in the group;
         does nothing otherwise (does not error)
         """
+        assert self.valid_group_name(group), "Group name not valid"
+        assert self.valid_channel_name(channel), "Channel name not valid"
         key = self._group_key(group)
         self.connection(self.consistent_hash(group)).zrem(
             key,
@@ -195,6 +199,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Sends a message to the entire group.
         """
+        assert self.valid_group_name(group), "Group name not valid"
         # TODO: More efficient implementation (lua script per shard?)
         for channel in self._group_channels(group):
             try:
