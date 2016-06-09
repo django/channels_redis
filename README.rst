@@ -125,6 +125,30 @@ If you're using Django, you may also wish to set this to your site's
     }
 
 
+Local-and-Remote Mode
+---------------------
+
+A "local and remote" mode is also supported, where the Redis channel layer
+works in conjunction with a machine-local channel layer (``asgi_ipc``) in order
+to route all normal channels over the local layer, while routing all
+single-reader and process-specific channels over the Redis layer.
+
+This allows traffic on things like ``http.request`` and ``websocket.receive``
+to stay in the local layer and not go through Redis, while still allowing Group
+send and sends to arbitrary channels terminated on other machines to work
+correctly. It will improve performance and decrease the load on your
+Redis cluster, but **it requires all normal channels are consumed on the
+same machine**.
+
+In practice, this means you MUST run workers that consume every channel your
+application has code to handle on the same machine as your HTTP or WebSocket
+terminator. If you fail to do this, requests to that machine will get routed
+into only the local queue and hang as nothing is reading them.
+
+To use it, just use the ``asgi_redis.RedisLocalChannelLayer`` class in your
+configuration instead of ``RedisChannelLayer`` and make sure you have the
+``asgi_ipc`` package installed; no other change is needed.
+
 
 TODO
 ----
