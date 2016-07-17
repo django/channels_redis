@@ -195,27 +195,9 @@ class RedisChannelLayer(BaseChannelLayer):
             channel,
         )
 
-    def send_group(self, group, message):
+    def group_channels(self, group):
         """
-        Sends a message to the entire group.
-        """
-        assert self.valid_group_name(group), "Group name not valid"
-        # TODO: More efficient implementation (lua script per shard?)
-        for channel in self._group_channels(group):
-            try:
-                self.send(channel, message)
-            except self.ChannelFull:
-                pass
-
-    def _group_key(self, group):
-        return ("%s:group:%s" % (self.prefix, group)).encode("utf8")
-
-    def _channel_groups_key(self, group):
-        return ("%s:chgroups:%s" % (self.prefix, group)).encode("utf8")
-
-    def _group_channels(self, group):
-        """
-        Returns an iterable of all channels in the group.
+        Returns all channels in the group as an iterable.
         """
         key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
@@ -227,6 +209,24 @@ class RedisChannelLayer(BaseChannelLayer):
             0,
             -1,
         )]
+
+    def send_group(self, group, message):
+        """
+        Sends a message to the entire group.
+        """
+        assert self.valid_group_name(group), "Group name not valid"
+        # TODO: More efficient implementation (lua script per shard?)
+        for channel in self.group_channels(group):
+            try:
+                self.send(channel, message)
+            except self.ChannelFull:
+                pass
+
+    def _group_key(self, group):
+        return ("%s:group:%s" % (self.prefix, group)).encode("utf8")
+
+    def _channel_groups_key(self, group):
+        return ("%s:chgroups:%s" % (self.prefix, group)).encode("utf8")
 
     ### Flush extension ###
 
