@@ -12,7 +12,13 @@ import string
 import time
 import uuid
 
+try:
+    import txredisapi
+except ImportError:
+    pass
+
 from asgiref.base_layer import BaseChannelLayer
+from .twisted_utils import defer
 
 
 class RedisChannelLayer(BaseChannelLayer):
@@ -74,7 +80,7 @@ class RedisChannelLayer(BaseChannelLayer):
 
     ### ASGI API ###
 
-    extensions = ["groups", "flush"]
+    extensions = ["groups", "flush", "twisted"]
 
     def send(self, channel, message):
         # Typecheck
@@ -103,28 +109,21 @@ class RedisChannelLayer(BaseChannelLayer):
                 raise self.ChannelFull
 
     def receive_many(self, channels, block=False):
-        if not channels:
+        # List name get
+        indexes = self._receive_many_list_names(channels)
+        # Short circuit if no channels
+        if indexes is None:
             return None, None
-        channels = list(channels)
-        assert all(self.valid_channel_name(channel) for channel in channels), "One or more channel names invalid"
-        # Work out what servers to listen on for the given channels
-        indexes = {}
-        random_index = self.random_index()
-        for channel in channels:
-            if "!" in channel or "?" in channel:
-                indexes.setdefault(self.consistent_hash(channel), []).append(channel)
-            else:
-                indexes.setdefault(random_index, []).append(channel)
         # Get a message from one of our channels
         while True:
             # Select a random connection to use
             index = random.choice(list(indexes.keys()))
+            list_names = indexes[index]
+            # Shuffle list_names to avoid the first ones starving others of workers
+            random.shuffle(list_names)
+            # Open a connection
             connection = self.connection(index)
-            channels = indexes[index]
-            # Shuffle channels to avoid the first ones starving others of workers
-            random.shuffle(channels)
             # Pop off any waiting message
-            list_names = [self.prefix + channel for channel in channels]
             if block:
                 result = connection.blpop(list_names, timeout=self.blpop_timeout)
             else:
@@ -138,6 +137,32 @@ class RedisChannelLayer(BaseChannelLayer):
                 return result[0][len(self.prefix):].decode("utf8"), self.deserialize(content)
             else:
                 return None, None
+
+    def _receive_many_list_names(self, channels):
+        """
+        Inner logic of receive_many; takes channels, groups by shard, and
+        returns {connection_index: list_names ...} if a query is needed or
+        None for a vacuously empty response.
+        """
+        # Short circuit if no channels
+        if not channels:
+            return None
+        # Check channel names are valid
+        channels = list(channels)
+        assert all(self.valid_channel_name(channel) for channel in channels), "One or more channel names invalid"
+        # Work out what servers to listen on for the given channels
+        indexes = {}
+        random_index = self.random_index()
+        for channel in channels:
+            if "!" in channel or "?" in channel:
+                indexes.setdefault(self.consistent_hash(channel), []).append(
+                    self.prefix + channel,
+                )
+            else:
+                indexes.setdefault(random_index, []).append(
+                    self.prefix + channel,
+                )
+        return indexes
 
     def new_channel(self, pattern):
         assert isinstance(pattern, six.text_type)
@@ -236,6 +261,47 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         for connection in self._connection_list:
             self.delprefix(keys=[], args=[self.prefix+"*"], client=connection)
+
+    ### Twisted extension ###
+
+    @defer.inlineCallbacks
+    def receive_many_twisted(self, channels):
+        """
+        Twisted-native implementation of receive_many.
+        """
+        # List name get
+        indexes = self._receive_many_list_names(channels)
+        # Short circuit if no channels
+        if indexes is None:
+            return None, None
+        # Get a message from one of our channels
+        while True:
+            # Select a random connection to use
+            index = random.choice(list(indexes.keys()))
+            list_names = indexes[index]
+            # Shuffle list_names to avoid the first ones starving others of workers
+            random.shuffle(list_names)
+            # Get a sync connection for conn details
+            sync_connection = self.connection(index)
+            twisted_connection = yield txredisapi.ConnectionPool(
+                host=sync_connection.connection_pool.connection_kwargs['host'],
+                port=sync_connection.connection_pool.connection_kwargs['port'],
+                dbid=sync_connection.connection_pool.connection_kwargs['db'],
+            )
+            try:
+                # Pop off any waiting message
+                result = yield twisted_connection.blpop(list_names, timeout=self.blpop_timeout)
+                if result:
+                    content = yield twisted_connection.get(result[1])
+                    # If the content key expired, keep going.
+                    if content is None:
+                        continue
+                    # Return the channel it's from and the message
+                    return result[0][len(self.prefix):], self.deserialize(content)
+                else:
+                    return None, None
+            finally:
+                yield twisted_connection.disconnect()
 
     ### Serialization ###
 
