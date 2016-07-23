@@ -273,7 +273,7 @@ class RedisChannelLayer(BaseChannelLayer):
         indexes = self._receive_many_list_names(channels)
         # Short circuit if no channels
         if indexes is None:
-            defer.returnValue(None, None)
+            defer.returnValue((None, None))
         # Get a message from one of our channels
         while True:
             # Select a random connection to use
@@ -297,9 +297,9 @@ class RedisChannelLayer(BaseChannelLayer):
                     if content is None:
                         continue
                     # Return the channel it's from and the message
-                    defer.returnValue(result[0][len(self.prefix):], self.deserialize(content))
+                    defer.returnValue((result[0][len(self.prefix):], self.deserialize(content)))
                 else:
-                    defer.returnValue(None, None)
+                    defer.returnValue((None, None))
             finally:
                 yield twisted_connection.disconnect()
 
