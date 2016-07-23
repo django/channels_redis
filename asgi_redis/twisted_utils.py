@@ -12,7 +12,8 @@ except ImportError:
         without it.
         """
 
-        def inline_callbacks(self, func):
+        @staticmethod
+        def inline_callbacks(func):
             def inner(*args, **kwargs):
                 raise NotImplementedError("Twisted is not installed")
             return inner
