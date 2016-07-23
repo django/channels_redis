@@ -273,7 +273,7 @@ class RedisChannelLayer(BaseChannelLayer):
         indexes = self._receive_many_list_names(channels)
         # Short circuit if no channels
         if indexes is None:
-            return None, None
+            defer.returnValue(None, None)
         # Get a message from one of our channels
         while True:
             # Select a random connection to use
