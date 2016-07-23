@@ -3,7 +3,7 @@ from __future__ import unicode_literals
 try:
     from twisted.internet import defer
 except ImportError:
-    class FakeDefer(object):
+    class defer(object):
         """
         Fake "defer" object that allows us to use decorators in the main
         class file but that errors when it's attempted to be invoked.

@@ -297,9 +297,9 @@ class RedisChannelLayer(BaseChannelLayer):
                     if content is None:
                         continue
                     # Return the channel it's from and the message
-                    return result[0][len(self.prefix):], self.deserialize(content)
+                    defer.returnValue(result[0][len(self.prefix):], self.deserialize(content))
                 else:
-                    return None, None
+                    defer.returnValue(None, None)
             finally:
                 yield twisted_connection.disconnect()
 
