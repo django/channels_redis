@@ -1,3 +1,9 @@
+0.14.1 (2016-08-24)
+-------------------
+
+* Removed unused reverse channels-to-groups mapping keys as they were not
+  cleaned up proactively and quickly filled up databases.
+
 0.14.0 (2016-07-16)
 -------------------
 
