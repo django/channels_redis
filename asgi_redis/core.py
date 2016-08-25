@@ -200,12 +200,6 @@ class RedisChannelLayer(BaseChannelLayer):
         # Set both expiration to be group_expiry, since everything in
         # it at this point is guaranteed to expire before that
         connection.expire(group_key, self.group_expiry)
-        # Also add to a normal set that contains all the groups a channel is in
-        # (as yet unused)
-        channel_key = self._channel_groups_key(channel)
-        connection = self.connection(self.consistent_hash(channel))
-        connection.sadd(channel_key, group)
-        connection.expire(channel_key, self.group_expiry)
 
     def group_discard(self, group, channel):
         """
@@ -249,9 +243,6 @@ class RedisChannelLayer(BaseChannelLayer):
 
     def _group_key(self, group):
         return ("%s:group:%s" % (self.prefix, group)).encode("utf8")
-
-    def _channel_groups_key(self, group):
-        return ("%s:chgroups:%s" % (self.prefix, group)).encode("utf8")
 
     ### Flush extension ###
 
