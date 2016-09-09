@@ -1,8 +1,8 @@
 asgi_redis
 ==========
 
-.. image:: https://api.travis-ci.org/andrewgodwin/asgi_redis.svg
-    :target: https://travis-ci.org/andrewgodwin/asgi_redis
+.. image:: https://api.travis-ci.org/django/asgi_redis.svg
+    :target: https://travis-ci.org/django/asgi_redis
 
 .. image:: https://img.shields.io/pypi/v/asgi_redis.svg
     :target: https://pypi.python.org/pypi/asgi_redis
@@ -160,4 +160,4 @@ https://docs.djangoproject.com/en/dev/internals/security/.
 To report bugs or request new features, please open a new GitHub issue.
 
 This repository is part of the Channels project. For the shepherd and maintenance team, please see the
-`main Channels readme <https://github.com/andrewgodwin/channels/blob/master/README.rst>`_.
+`main Channels readme <https://github.com/django/channels/blob/master/README.rst>`_.

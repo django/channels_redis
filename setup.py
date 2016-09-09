@@ -10,9 +10,9 @@ readme_path = os.path.join(os.path.dirname(__file__), "README.rst")
 setup(
     name='asgi_redis',
     version=__version__,
-    url='http://github.com/andrewgodwin/asgi_redis/',
-    author='Andrew Godwin',
-    author_email='andrew@aeracode.org',
+    url='http://github.com/django/asgi_redis/',
+    author='Django Software Foundation',
+    author_email='foundation@djangoproject.com',
     description='Redis-backed ASGI channel layer implementation',
     long_description=open(readme_path).read(),
     license='BSD',
