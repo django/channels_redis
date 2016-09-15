@@ -102,6 +102,7 @@ class RedisChannelLayer(BaseChannelLayer):
             self.chansend(
                 keys=[message_key, channel_key],
                 args=[self.serialize(message), self.expiry, self.get_capacity(channel)],
+                client=connection,
             )
         except redis.exceptions.ResponseError as e:
             # The Lua script handles capacity checking and sends the "full" error back
