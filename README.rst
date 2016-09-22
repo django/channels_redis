@@ -17,7 +17,9 @@ Usage
 You'll need to instantiate the channel layer with at least ``hosts``,
 and other options if you need them.
 
-Example::
+Example:
+
+.. code-block:: python
 
     channel_layer = RedisChannelLayer(
         host="redis",
@@ -28,44 +30,44 @@ Example::
         }
     )
 
-hosts
-~~~~~
+``hosts``
+~~~~~~~~~
 
 The server(s) to connect to, as either URIs or ``(host, port)`` tuples. Defaults to ``['localhost', 6379]``. Pass multiple hosts to enable sharding, but note that changing the host list will lose some sharded data.
 
-prefix
-~~~~~~
+``prefix``
+~~~~~~~~~~
 
 Prefix to add to all Redis keys. Defaults to ``asgi:``. If you're running
 two or more entirely separate channel layers through the same Redis instance,
 make sure they have different prefixes. All servers talking to the same layer
 should have the same prefix, though.
 
-expiry
-~~~~~~
+``expiry``
+~~~~~~~~~~
 
 Message expiry in seconds. Defaults to ``60``. You generally shouldn't need
 to change this, but you may want to turn it down if you have peaky traffic you
 wish to drop, or up if you have peaky traffic you want to backlog until you
 get to it.
 
-group_expiry
-~~~~~~~~~~~~
+``group_expiry``
+~~~~~~~~~~~~~~~~
 
 Group expiry in seconds. Defaults to ``86400``. Interface servers will drop
 connections after this amount of time; it's recommended you reduce it for a
 healthier system that encourages disconnections.
 
-capacity
-~~~~~~~~
+``capacity``
+~~~~~~~~~~~~
 
 Default channel capacity. Defaults to ``100``. Once a channel is at capacity,
 it will refuse more messages. How this affects different parts of the system
 varies; a HTTP server will refuse connections, for example, while Django
 sending a response will just wait until there's space.
 
-channel_capacity
-~~~~~~~~~~~~~~~~
+``channel_capacity``
+~~~~~~~~~~~~~~~~~~~~
 
 Per-channel capacity configuration. This lets you tweak the channel capacity
 based on the channel name, and supports both globbing and regular expressions.
@@ -75,7 +77,9 @@ dict key is a string, it's intepreted as a glob, while if it's a compiled
 ``re`` object, it's treated as a regular expression.
 
 This example sets ``http.request`` to 200, all ``http.response!`` channels
-to 10, and all ``websocket.send!`` channels to 20::
+to 10, and all ``websocket.send!`` channels to 20:
+
+.. code-block:: python
 
     channel_capacity={
         "http.request": 200,
@@ -86,8 +90,8 @@ to 10, and all ``websocket.send!`` channels to 20::
 If you want to enforce a matching order, use an ``OrderedDict`` as the
 argument; channels will then be matched in the order the dict provides them.
 
-symmetric_encryption_keys
-~~~~~~~~~~~~~~~~~~~~~~~~~
+``symmetric_encryption_keys``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Pass this to enable the optional symmetric encryption mode of the backend. To
 use it, make sure you have the ``cryptography`` package installed, or specify
@@ -111,7 +115,9 @@ the SHA256 hash function before being used as an encryption key. Any string
 will work, but the shorter the string, the easier the encryption is to break.
 
 If you're using Django, you may also wish to set this to your site's
-``SECRET_KEY`` setting via the ``CHANNEL_LAYERS`` setting::
+``SECRET_KEY`` setting via the ``CHANNEL_LAYERS`` setting:
+
+.. code-block:: python
 
     CHANNEL_LAYERS = {
         "default": {
