@@ -45,7 +45,7 @@ class RedisChannelLayer(BaseChannelLayer):
             if isinstance(entry, six.string_types):
                 self.hosts.append(entry)
             else:
-                self.hosts.append("redis://%s:%d/0" % (entry[0],entry[1]))
+                self.hosts.append("redis://%s:%d/0" % (entry[0], entry[1]))
         self.prefix = prefix
         assert isinstance(self.prefix, six.text_type), "Prefix must be unicode"
         # Precalculate some values for ring selection
@@ -102,6 +102,7 @@ class RedisChannelLayer(BaseChannelLayer):
             self.chansend(
                 keys=[message_key, channel_key],
                 args=[self.serialize(message), self.expiry, self.get_capacity(channel)],
+                client=connection,
             )
         except redis.exceptions.ResponseError as e:
             # The Lua script handles capacity checking and sends the "full" error back
