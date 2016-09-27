@@ -1,7 +1,11 @@
 import os
 from setuptools import setup, find_packages
 
-__version__ = '0.14.1'
+
+def get_version():
+    for line in open(os.path.join(os.path.dirname(__file__), 'asgi_redis', '__init__.py')):
+        if line.startswith('__version__'):
+            return line.split('=')[-1].strip().replace('"', '').replace("'", '')
 
 # We use the README as the long_description
 readme_path = os.path.join(os.path.dirname(__file__), "README.rst")
@@ -9,10 +13,10 @@ readme_path = os.path.join(os.path.dirname(__file__), "README.rst")
 
 setup(
     name='asgi_redis',
-    version=__version__,
-    url='http://github.com/andrewgodwin/asgi_redis/',
-    author='Andrew Godwin',
-    author_email='andrew@aeracode.org',
+    version=get_version(),
+    url='http://github.com/django/asgi_redis/',
+    author='Django Software Foundation',
+    author_email='foundation@djangoproject.com',
     description='Redis-backed ASGI channel layer implementation',
     long_description=open(readme_path).read(),
     license='BSD',
