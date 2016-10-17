@@ -155,6 +155,12 @@ To use it, just use the ``asgi_redis.RedisLocalChannelLayer`` class in your
 configuration instead of ``RedisChannelLayer`` and make sure you have the
 ``asgi_ipc`` package installed; no other change is needed.
 
+Supported versions
+------------------
+
+Python 2.7 and Python 3.3 - 3.5 are supported. Redis >= 2.6 and Django >= 1.7
+are required.
+
 
 Maintenance and Security
 ------------------------
