@@ -21,6 +21,10 @@ from asgiref.base_layer import BaseChannelLayer
 from .twisted_utils import defer
 
 
+class UnsupportedRedis(Exception):
+    pass
+
+
 class RedisChannelLayer(BaseChannelLayer):
     """
     ORM-backed channel environment. For development use only; it will span
@@ -108,6 +112,13 @@ class RedisChannelLayer(BaseChannelLayer):
             # The Lua script handles capacity checking and sends the "full" error back
             if e.args[0] == "full":
                 raise self.ChannelFull
+            elif "unknown command" in e.args[0]:
+                raise UnsupportedRedis(
+                    "Redis returned an error (%s). Please ensure you're running a "
+                    " version of redis that is supported by asgi_redis." % e.args[0])
+            else:
+                # Let any other exception bubble up
+                raise
 
     def receive_many(self, channels, block=False):
         # List name get
