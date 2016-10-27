@@ -57,10 +57,7 @@ class RedisChannelLayer(BaseChannelLayer):
         self.ring_divisor = int(math.ceil(4096 / float(self.ring_size)))
         # Create connections ahead of time (they won't call out just yet, but
         # we want to connection-pool them later)
-        self._connection_list = [
-            redis.Redis.from_url(host)
-            for host in self.hosts
-        ]
+        self._connection_list = self._generate_connections()
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
         self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
@@ -81,6 +78,12 @@ class RedisChannelLayer(BaseChannelLayer):
             self.crypter = MultiFernet(sub_fernets)
         else:
             self.crypter = None
+
+    def _generate_connections(self):
+        return [
+            redis.Redis.from_url(host)
+            for host in self.hosts
+        ]
 
     ### ASGI API ###
 
@@ -399,4 +402,3 @@ class RedisChannelLayer(BaseChannelLayer):
 
     def __str__(self):
         return "%s(hosts=%s)" % (self.__class__.__name__, self.hosts)
-
