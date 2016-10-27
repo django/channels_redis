@@ -16,10 +16,6 @@ try:
     import txredisapi
 except ImportError:
     pass
-try:
-    from django_redis import get_redis_connection
-except ImportError:
-    pass
 
 from asgiref.base_layer import BaseChannelLayer
 from .twisted_utils import defer
@@ -395,8 +391,3 @@ class RedisChannelLayer(BaseChannelLayer):
 
     def __str__(self):
         return "%s(hosts=%s)" % (self.__class__.__name__, self.hosts)
-
-
-class DjangoRedisChannelLayer(RedisChannelLayer):
-    def _generate_connections(self):
-            return [get_redis_connection()]
