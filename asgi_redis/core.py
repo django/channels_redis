@@ -27,8 +27,12 @@ class UnsupportedRedis(Exception):
 
 class RedisChannelLayer(BaseChannelLayer):
     """
-    ORM-backed channel environment. For development use only; it will span
-    multiple processes fine, but it's going to be pretty bad at throughput.
+    Redis channel layer.
+
+    It routes all messages into remote Redis server.  Support for
+    sharding among different Redis installations and message
+    encryption are provided.  Both synchronous and asynchronous (via
+    Twisted) approaches are implemented.
     """
 
     blpop_timeout = 5
