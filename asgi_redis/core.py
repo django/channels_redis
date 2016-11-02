@@ -49,6 +49,11 @@ class RedisChannelLayer(BaseChannelLayer):
         if not hosts:
             hosts = [("localhost", 6379)]
         self.hosts = []
+        
+        if isinstance(hosts, six.string_types):
+            # user accidentally used one host string instead of providing a list of hosts
+            raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
+                             
         for entry in hosts:
             if isinstance(entry, six.string_types):
                 self.hosts.append(entry)
