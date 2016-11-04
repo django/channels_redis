@@ -27,7 +27,7 @@ class RedisLayerTests(ConformanceTestCase):
         time.sleep(1.2)
         # Send new message to group, ensure message never arrives
         self.channel_layer.send_group("tgme_group", {"value": "blue"})
-        channel, message = self.channel_layer.receive_many(["tgme_test"])
+        channel, message = self.channel_layer.receive(["tgme_test"])
         self.assertIs(channel, None)
         self.assertIs(message, None)
 
@@ -57,20 +57,20 @@ try:
             self.channel_layer = RedisChannelLayer(expiry=1, group_expiry=2, capacity=5)
 
         @defer.inlineCallbacks
-        def test_receive_many_twisted(self):
+        def test_receive_twisted(self):
             self.channel_layer.send("sr_test", {"value": "blue"})
             self.channel_layer.send("sr_test", {"value": "green"})
             self.channel_layer.send("sr_test2", {"value": "red"})
             # Get just one first
-            channel, message = yield self.channel_layer.receive_many_twisted(["sr_test"])
+            channel, message = yield self.channel_layer.receive_twisted(["sr_test"])
             self.assertEqual(channel, "sr_test")
             self.assertEqual(message, {"value": "blue"})
             # And the second
-            channel, message = yield self.channel_layer.receive_many_twisted(["sr_test"])
+            channel, message = yield self.channel_layer.receive_twisted(["sr_test"])
             self.assertEqual(channel, "sr_test")
             self.assertEqual(message, {"value": "green"})
             # And the other channel with multi select
-            channel, message = yield self.channel_layer.receive_many_twisted(["sr_test", "sr_test2"])
+            channel, message = yield self.channel_layer.receive_twisted(["sr_test", "sr_test2"])
             self.assertEqual(channel, "sr_test2")
             self.assertEqual(message, {"value": "red"})
 

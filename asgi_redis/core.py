@@ -132,9 +132,9 @@ class RedisChannelLayer(BaseChannelLayer):
                 # Let any other exception bubble up
                 raise
 
-    def receive_many(self, channels, block=False):
+    def receive(self, channels, block=False):
         # List name get
-        indexes = self._receive_many_list_names(channels)
+        indexes = self._receive_list_names(channels)
         # Short circuit if no channels
         if indexes is None:
             return None, None
@@ -162,9 +162,9 @@ class RedisChannelLayer(BaseChannelLayer):
             else:
                 return None, None
 
-    def _receive_many_list_names(self, channels):
+    def _receive_list_names(self, channels):
         """
-        Inner logic of receive_many; takes channels, groups by shard, and
+        Inner logic of receive; takes channels, groups by shard, and
         returns {connection_index: list_names ...} if a query is needed or
         None for a vacuously empty response.
         """
@@ -280,12 +280,12 @@ class RedisChannelLayer(BaseChannelLayer):
     ### Twisted extension ###
 
     @defer.inlineCallbacks
-    def receive_many_twisted(self, channels):
+    def receive_twisted(self, channels):
         """
-        Twisted-native implementation of receive_many.
+        Twisted-native implementation of receive.
         """
         # List name get
-        indexes = self._receive_many_list_names(channels)
+        indexes = self._receive_list_names(channels)
         # Short circuit if no channels
         if indexes is None:
             defer.returnValue((None, None))

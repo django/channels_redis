@@ -27,7 +27,7 @@ setup(
         'six',
         'redis>=2.10',
         'msgpack-python',
-        'asgiref>=0.14.0',
+        'asgiref>=1.0.0',
     ],
     extras_requires={
         "cryptography": ['cryptography>=1.3.0'],

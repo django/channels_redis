@@ -40,21 +40,21 @@ class RedisLocalChannelLayer(RedisChannelLayer):
         else:
             return self.local_layer.send(channel, message)
 
-    def receive_many(self, channels, block=False):
+    def receive(self, channels, block=False):
         # Work out what kinds of channels are in there
         num_remote = len([channel for channel in channels if "!" in channel or "?" in channel])
         num_local = len(channels) - num_remote
         # If they mixed types, force nonblock mode and query both backends, local first
         if num_local and num_remote:
-            result = self.local_layer.receive_many(channels, block=False)
+            result = self.local_layer.receive(channels, block=False)
             if result[0] is not None:
                 return result
-            return super(RedisLocalChannelLayer, self).receive_many(channels, block=block)
+            return super(RedisLocalChannelLayer, self).receive(channels, block=block)
         # If they just did one type, pass off to that backend
         elif num_local:
-            return self.local_layer.receive_many(channels, block=block)
+            return self.local_layer.receive(channels, block=block)
         else:
-            return super(RedisLocalChannelLayer, self).receive_many(channels, block=block)
+            return super(RedisLocalChannelLayer, self).receive(channels, block=block)
 
     # new_channel always goes to Redis as it's always remote channels.
     # Group APIs always go to Redis too.
