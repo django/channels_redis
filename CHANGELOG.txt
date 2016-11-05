@@ -1,3 +1,10 @@
+1.0.0 (2016-11-05)
+------------------
+
+* Renamed "receive_many" to "receive"
+* Improved (more explicit) error handling for Redis errors/old versions
+* Bad hosts (string not lost) configuration now errors explicitly
+
 0.14.1 (2016-08-24)
 -------------------
 
