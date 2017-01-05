@@ -374,12 +374,12 @@ class RedisChannelLayer(BaseChannelLayer):
     def consistent_hash(self, value):
         """
         Maps the value to a node value between 0 and 4095
-        using MD5, then down to one of the ring nodes.
+        using CRC, then down to one of the ring nodes.
         """
         if isinstance(value, six.text_type):
             value = value.encode("utf8")
-        bigval = binascii.crc32(value) & 0xffffffff
-        return (bigval // 0x100000) // self.ring_divisor
+        bigval = binascii.crc32(value) & 0xfff
+        return bigval // self.ring_divisor
 
     def random_index(self):
         return random.randint(0, len(self.hosts) - 1)
