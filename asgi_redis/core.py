@@ -49,11 +49,11 @@ class RedisChannelLayer(BaseChannelLayer):
         if not hosts:
             hosts = [("localhost", 6379)]
         self.hosts = []
-        
+
         if isinstance(hosts, six.string_types):
             # user accidentally used one host string instead of providing a list of hosts
             raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
-                             
+
         for entry in hosts:
             if isinstance(entry, six.string_types):
                 self.hosts.append(entry)
@@ -63,7 +63,6 @@ class RedisChannelLayer(BaseChannelLayer):
         assert isinstance(self.prefix, six.text_type), "Prefix must be unicode"
         # Precalculate some values for ring selection
         self.ring_size = len(self.hosts)
-        self.ring_divisor = int(math.ceil(4096 / float(self.ring_size)))
         # Create connections ahead of time (they won't call out just yet, but
         # we want to connection-pool them later)
         self._connection_list = self._generate_connections()
@@ -379,7 +378,8 @@ class RedisChannelLayer(BaseChannelLayer):
         if isinstance(value, six.text_type):
             value = value.encode("utf8")
         bigval = binascii.crc32(value) & 0xfff
-        return bigval // self.ring_divisor
+        ring_divisor = 4096 / float(self.ring_size)
+        return int(bigval / ring_divisor)
 
     def random_index(self):
         return random.randint(0, len(self.hosts) - 1)
