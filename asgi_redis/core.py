@@ -3,7 +3,6 @@ from __future__ import unicode_literals
 import base64
 import binascii
 import hashlib
-import math
 import msgpack
 import random
 import redis
@@ -38,7 +37,7 @@ class RedisChannelLayer(BaseChannelLayer):
     blpop_timeout = 5
     global_statistics_expiry = 86400
     channel_statistics_expiry = 3600
-    global_stats_key = '#global#' # needs to be invalid as a channel name
+    global_stats_key = '#global#'  # needs to be invalid as a channel name
 
     def __init__(self, expiry=60, hosts=None, prefix="asgi:", group_expiry=86400, capacity=100, channel_capacity=None,
                  symmetric_encryption_keys=None, stats_prefix="asgi-meta:"):
@@ -125,7 +124,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 client=connection,
             )
             self._incr_statistics_counter(
-                stat_name='messages_count',
+                stat_name=self.STAT_MESSAGES_COUNT,
                 channel=channel,
                 connection=connection,
             )
@@ -133,7 +132,7 @@ class RedisChannelLayer(BaseChannelLayer):
             # The Lua script handles capacity checking and sends the "full" error back
             if e.args[0] == "full":
                 self._incr_statistics_counter(
-                    stat_name='channel_full_count',
+                    stat_name=self.STAT_CHANNEL_FULL,
                     channel=channel,
                     connection=connection,
                 )
@@ -289,8 +288,8 @@ class RedisChannelLayer(BaseChannelLayer):
         Deletes all messages and groups on all shards.
         """
         for connection in self._connection_list:
-            self.delprefix(keys=[], args=[self.prefix+"*"], client=connection)
-            self.delprefix(keys=[], args=[self.stats_prefix+"*"], client=connection)
+            self.delprefix(keys=[], args=[self.prefix + "*"], client=connection)
+            self.delprefix(keys=[], args=[self.stats_prefix + "*"], client=connection)
 
     ### Twisted extension ###
 
@@ -333,8 +332,12 @@ class RedisChannelLayer(BaseChannelLayer):
             finally:
                 yield twisted_connection.disconnect()
 
-
     ### statistics extension ###
+
+    STAT_MESSAGES_COUNT = 'messages_count'
+    STAT_MESSAGES_PENDING = 'messages_pending'
+    STAT_MESSAGES_MAX_AGE = 'messages_max_age'
+    STAT_CHANNEL_FULL = 'channel_full_count'
 
     def global_statistics(self):
         """
@@ -349,17 +352,17 @@ class RedisChannelLayer(BaseChannelLayer):
 
         """
         statistics = {
-            'messages_count': 0,
-            'channel_full_count': 0,
+            self.STAT_MESSAGES_COUNT: 0,
+            self.STAT_CHANNEL_FULL: 0,
         }
         prefix = self.stats_prefix + self.global_stats_key
         for connection in self._connection_list:
             messages_count, channel_full_count = connection.mget(
-                prefix + ':messages_count',
-                prefix + ':channel_full_count',
+                ':'.join(prefix, self.STAT_MESSAGES_COUNT),
+                ':'.join(prefix, self.STAT_CHANNELS_FULL),
             )
-            statistics['messages_count'] += int(messages_count or 0)
-            statistics['channel_full_count'] += int(channel_full_count or 0)
+            statistics[self.STAT_MESSAGES_COUNT] += int(messages_count or 0)
+            statistics[self.STAT_CHANNEL_FULL] += int(channel_full_count or 0)
 
         return statistics
 
@@ -375,10 +378,10 @@ class RedisChannelLayer(BaseChannelLayer):
         This implementation does not provide calculated per second values
         """
         statistics = {
-            'messages_count': 0,
-            'messages_pending': 0,
-            'messages_max_age': 0,
-            'channel_full_count': 0,
+            self.STAT_MESSAGES_COUNT: 0,
+            self.STAT_MESSAGES_PENDING: 0,
+            self.STAT_MESSAGES_MAX_AGE: 0,
+            self.STAT_CHANNEL_FULL: 0,
         }
         prefix = self.stats_prefix + channel
 
@@ -392,16 +395,16 @@ class RedisChannelLayer(BaseChannelLayer):
 
         for connection in connections:
             messages_count, channel_full_count = connection.mget(
-                prefix + ':messages_count',
-                prefix + ':channel_full_count',
+                ':'.join(prefix, self.STAT_MESSAGES_COUNT),
+                ':'.join(prefix, self.STAT_CHANNEL_FULL),
             )
-            statistics['messages_count'] += int(messages_count or 0)
-            statistics['channel_full_count'] += int(channel_full_count or 0)
-            statistics['messages_pending'] += connection.llen(channel_key)
+            statistics[self.STAT_MESSAGES_COUNT] += int(messages_count or 0)
+            statistics[self.STAT_CHANNELS_FULL:] += int(channel_full_count or 0)
+            statistics[self.STAT_MESSAGES_PENDING] += connection.llen(channel_key)
             oldest_message = connection.lindex(channel_key, 0)
             if oldest_message:
                 messages_age = self.expiry - connection.ttl(oldest_message)
-                statistics['messages_max_age'] = max(statistics['messages_max_age'], messages_age)
+                statistics[self.STAT_MESSAGES_MAX_AGE] = max(statistics[self.STAT_MESSAGES_MAX_AGE], messages_age)
         return statistics
 
     def _incr_statistics_counter(self, stat_name, channel, connection):
