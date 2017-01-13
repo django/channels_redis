@@ -359,7 +359,7 @@ class RedisChannelLayer(BaseChannelLayer):
         for connection in self._connection_list:
             messages_count, channel_full_count = connection.mget(
                 ':'.join(prefix, self.STAT_MESSAGES_COUNT),
-                ':'.join(prefix, self.STAT_CHANNELS_FULL),
+                ':'.join(prefix, self.STAT_CHANNEL_FULL),
             )
             statistics[self.STAT_MESSAGES_COUNT] += int(messages_count or 0)
             statistics[self.STAT_CHANNEL_FULL] += int(channel_full_count or 0)
@@ -399,7 +399,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 ':'.join(prefix, self.STAT_CHANNEL_FULL),
             )
             statistics[self.STAT_MESSAGES_COUNT] += int(messages_count or 0)
-            statistics[self.STAT_CHANNELS_FULL:] += int(channel_full_count or 0)
+            statistics[self.STAT_CHANNEL_FULL:] += int(channel_full_count or 0)
             statistics[self.STAT_MESSAGES_PENDING] += connection.llen(channel_key)
             oldest_message = connection.lindex(channel_key, 0)
             if oldest_message:
