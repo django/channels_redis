@@ -341,16 +341,15 @@ class RedisChannelLayer(BaseChannelLayer):
         Returns dictionary of statistics across all channels on all shards.
         Return value is a dictionary with following fields:
             * messages_count, the number of messages processed since server start
-            * messages_pending, the current number of messages waiting
-            * messages_max_age, how long the oldest message has been waiting, in seconds
             * channel_full_count, the number of times ChannelFull exception has been risen since server start
 
-        This implementation does not provide calculated per second values
+        This implementation does not provide calculated per second values.
+        Due perfomance concerns, does not provide aggregated messages_pending and messages_max_age,
+        these are only avaliable per channel.
+
         """
         statistics = {
             'messages_count': 0,
-            # 'messages_pending': 0,  #  not sure how to do this w/o iterating over _all_ channels
-            # 'messages_max_age': 0,
             'channel_full_count': 0,
         }
         prefix = self.stats_prefix + self.global_stats_key

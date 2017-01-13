@@ -5,7 +5,6 @@ from asgi_redis import RedisChannelLayer
 from asgiref.conformance import ConformanceTestCase
 
 
-
 # Default conformance tests
 class RedisLayerTests(ConformanceTestCase):
 
@@ -40,8 +39,6 @@ class RedisLayerTests(ConformanceTestCase):
             self.channel_layer.global_statistics(),
             {
                 'messages_count': 3,
-                # 'messages_pending': 0,  #  not implemented
-                # 'messages_max_age': 0,  #  not implemented
                 'channel_full_count': 0,
             }
         )
@@ -78,8 +75,6 @@ class RedisLayerTests(ConformanceTestCase):
             self.channel_layer.global_statistics(),
             {
                 'messages_count': 6,
-                # 'messages_pending': 0,  #  not implemented
-                # 'messages_max_age': 0,  #  not implemented
                 'channel_full_count': 4,
             }
         )
@@ -112,7 +107,7 @@ class EncryptedRedisLayerTests(ConformanceTestCase):
 try:
     from twisted.internet import defer, reactor
     import twisted.trial.unittest
-    import txredisapi
+
     class TwistedTests(twisted.trial.unittest.TestCase):
 
         def setUp(self):
