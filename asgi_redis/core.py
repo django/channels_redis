@@ -348,8 +348,8 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         statistics = {
             'messages_count': 0,
-            'messages_pending': 0,
-            'messages_max_age': 0,
+            # 'messages_pending': 0,  #  not sure how to do this w/o iterating over _all_ channels
+            # 'messages_max_age': 0,
             'channel_full_count': 0,
         }
         prefix = '{stat_prefix}{global_key}'.fromat(self.stats_prefix, self.global_stats_key)
