@@ -5,7 +5,6 @@ from asgi_redis import RedisChannelLayer
 from asgiref.conformance import ConformanceTestCase
 
 
-
 # Default conformance tests
 class RedisLayerTests(ConformanceTestCase):
 
@@ -31,6 +30,65 @@ class RedisLayerTests(ConformanceTestCase):
         self.assertIs(channel, None)
         self.assertIs(message, None)
 
+    def test_statistics(self):
+        self.channel_layer.send("first_channel", {"pay": "load"})
+        self.channel_layer.send("first_channel", {"pay": "load"})
+        self.channel_layer.send("second_channel", {"pay": "load"})
+
+        self.assertEqual(
+            self.channel_layer.global_statistics(),
+            {
+                'messages_count': 3,
+                'channel_full_count': 0,
+            }
+        )
+
+        self.assertEqual(
+            self.channel_layer.channel_statistics("first_channel"),
+            {
+                'messages_count': 2,
+                'messages_pending': 2,
+                'messages_max_age': 0,
+                'channel_full_count': 0,
+            }
+        )
+
+        self.assertEqual(
+            self.channel_layer.channel_statistics("second_channel"),
+            {
+                'messages_count': 1,
+                'messages_pending': 1,
+                'messages_max_age': 0,
+                'channel_full_count': 0,
+            }
+        )
+
+        for _ in range(3):
+            self.channel_layer.send("first_channel", {"pay": "load"})
+
+        for _ in range(4):
+            with self.assertRaises(RedisChannelLayer.ChannelFull):
+                self.channel_layer.send("first_channel", {"pay": "load"})
+
+        # check that channel full exception are counted as such, not towards messages
+        self.assertEqual(
+            self.channel_layer.global_statistics(),
+            {
+                'messages_count': 6,
+                'channel_full_count': 4,
+            }
+        )
+
+        self.assertEqual(
+            self.channel_layer.channel_statistics("first_channel"),
+            {
+                'messages_count': 5,
+                'messages_pending': 5,
+                'messages_max_age': 0,
+                'channel_full_count': 4,
+            }
+        )
+
 
 # Encrypted variant of conformance tests
 class EncryptedRedisLayerTests(ConformanceTestCase):
@@ -49,7 +107,7 @@ class EncryptedRedisLayerTests(ConformanceTestCase):
 try:
     from twisted.internet import defer, reactor
     import twisted.trial.unittest
-    import txredisapi
+
     class TwistedTests(twisted.trial.unittest.TestCase):
 
         def setUp(self):

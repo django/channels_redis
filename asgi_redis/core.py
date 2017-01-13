@@ -3,7 +3,6 @@ from __future__ import unicode_literals
 import base64
 import binascii
 import hashlib
-import math
 import msgpack
 import random
 import redis
@@ -36,9 +35,12 @@ class RedisChannelLayer(BaseChannelLayer):
     """
 
     blpop_timeout = 5
+    global_statistics_expiry = 86400
+    channel_statistics_expiry = 3600
+    global_stats_key = '#global#'  # needs to be invalid as a channel name
 
     def __init__(self, expiry=60, hosts=None, prefix="asgi:", group_expiry=86400, capacity=100, channel_capacity=None,
-                 symmetric_encryption_keys=None):
+                 symmetric_encryption_keys=None, stats_prefix="asgi-meta:"):
         super(RedisChannelLayer, self).__init__(
             expiry=expiry,
             group_expiry=group_expiry,
@@ -74,6 +76,7 @@ class RedisChannelLayer(BaseChannelLayer):
         self.chansend = connection.register_script(self.lua_chansend)
         self.lpopmany = connection.register_script(self.lua_lpopmany)
         self.delprefix = connection.register_script(self.lua_delprefix)
+        self.incrstatcounters = connection.register_script(self.lua_incrstatcounters)
         # See if we can do encryption if they asked
         if symmetric_encryption_keys:
             if isinstance(symmetric_encryption_keys, six.string_types):
@@ -86,6 +89,7 @@ class RedisChannelLayer(BaseChannelLayer):
             self.crypter = MultiFernet(sub_fernets)
         else:
             self.crypter = None
+        self.stats_prefix = stats_prefix
 
     def _generate_connections(self):
         return [
@@ -95,7 +99,7 @@ class RedisChannelLayer(BaseChannelLayer):
 
     ### ASGI API ###
 
-    extensions = ["groups", "flush", "twisted"]
+    extensions = ["groups", "flush", "twisted", "statistics"]
 
     def send(self, channel, message):
         # Typecheck
@@ -119,9 +123,19 @@ class RedisChannelLayer(BaseChannelLayer):
                 args=[self.serialize(message), self.expiry, self.get_capacity(channel)],
                 client=connection,
             )
+            self._incr_statistics_counter(
+                stat_name=self.STAT_MESSAGES_COUNT,
+                channel=channel,
+                connection=connection,
+            )
         except redis.exceptions.ResponseError as e:
             # The Lua script handles capacity checking and sends the "full" error back
             if e.args[0] == "full":
+                self._incr_statistics_counter(
+                    stat_name=self.STAT_CHANNEL_FULL,
+                    channel=channel,
+                    connection=connection,
+                )
                 raise self.ChannelFull
             elif "unknown command" in e.args[0]:
                 raise UnsupportedRedis(
@@ -274,7 +288,8 @@ class RedisChannelLayer(BaseChannelLayer):
         Deletes all messages and groups on all shards.
         """
         for connection in self._connection_list:
-            self.delprefix(keys=[], args=[self.prefix+"*"], client=connection)
+            self.delprefix(keys=[], args=[self.prefix + "*"], client=connection)
+            self.delprefix(keys=[], args=[self.stats_prefix + "*"], client=connection)
 
     ### Twisted extension ###
 
@@ -317,6 +332,100 @@ class RedisChannelLayer(BaseChannelLayer):
             finally:
                 yield twisted_connection.disconnect()
 
+    ### statistics extension ###
+
+    STAT_MESSAGES_COUNT = 'messages_count'
+    STAT_MESSAGES_PENDING = 'messages_pending'
+    STAT_MESSAGES_MAX_AGE = 'messages_max_age'
+    STAT_CHANNEL_FULL = 'channel_full_count'
+
+    def global_statistics(self):
+        """
+        Returns dictionary of statistics across all channels on all shards.
+        Return value is a dictionary with following fields:
+            * messages_count, the number of messages processed since server start
+            * channel_full_count, the number of times ChannelFull exception has been risen since server start
+
+        This implementation does not provide calculated per second values.
+        Due perfomance concerns, does not provide aggregated messages_pending and messages_max_age,
+        these are only avaliable per channel.
+
+        """
+        statistics = {
+            self.STAT_MESSAGES_COUNT: 0,
+            self.STAT_CHANNEL_FULL: 0,
+        }
+        prefix = self.stats_prefix + self.global_stats_key
+        for connection in self._connection_list:
+            messages_count, channel_full_count = connection.mget(
+                ':'.join((prefix, self.STAT_MESSAGES_COUNT)),
+                ':'.join((prefix, self.STAT_CHANNEL_FULL)),
+            )
+            statistics[self.STAT_MESSAGES_COUNT] += int(messages_count or 0)
+            statistics[self.STAT_CHANNEL_FULL] += int(channel_full_count or 0)
+
+        return statistics
+
+    def channel_statistics(self, channel):
+        """
+        Returns dictionary of statistics for specified channel.
+        Return value is a dictionary with following fields:
+            * messages_count, the number of messages processed since server start
+            * messages_pending, the current number of messages waiting
+            * messages_max_age, how long the oldest message has been waiting, in seconds
+            * channel_full_count, the number of times ChannelFull exception has been risen since server start
+
+        This implementation does not provide calculated per second values
+        """
+        statistics = {
+            self.STAT_MESSAGES_COUNT: 0,
+            self.STAT_MESSAGES_PENDING: 0,
+            self.STAT_MESSAGES_MAX_AGE: 0,
+            self.STAT_CHANNEL_FULL: 0,
+        }
+        prefix = self.stats_prefix + channel
+
+        if "!" in channel or "?" in channel:
+            connections = [self.connection(self.consistent_hash(channel))]
+        else:
+            # if we don't know where it is, we have to check in all shards
+            connections = self._connection_list
+
+        channel_key = self.prefix + channel
+
+        for connection in connections:
+            messages_count, channel_full_count = connection.mget(
+                ':'.join((prefix, self.STAT_MESSAGES_COUNT)),
+                ':'.join((prefix, self.STAT_CHANNEL_FULL)),
+            )
+            statistics[self.STAT_MESSAGES_COUNT] += int(messages_count or 0)
+            statistics[self.STAT_CHANNEL_FULL] += int(channel_full_count or 0)
+            statistics[self.STAT_MESSAGES_PENDING] += connection.llen(channel_key)
+            oldest_message = connection.lindex(channel_key, 0)
+            if oldest_message:
+                messages_age = self.expiry - connection.ttl(oldest_message)
+                statistics[self.STAT_MESSAGES_MAX_AGE] = max(statistics[self.STAT_MESSAGES_MAX_AGE], messages_age)
+        return statistics
+
+    def _incr_statistics_counter(self, stat_name, channel, connection):
+        """ helper function to intrement counter stats in one go """
+        self.incrstatcounters(
+            keys=[
+                "{prefix}{channel}:{stat_name}".format(
+                    prefix=self.stats_prefix,
+                    channel=channel,
+                    stat_name=stat_name,
+                ),
+                "{prefix}{global_key}:{stat_name}".format(
+                    prefix=self.stats_prefix,
+                    global_key=self.global_stats_key,
+                    stat_name=stat_name,
+                )
+            ],
+            args=[self.channel_statistics_expiry, self.global_statistics_expiry],
+            client=connection,
+        )
+
     ### Serialization ###
 
     def serialize(self, message):
@@ -349,6 +458,17 @@ class RedisChannelLayer(BaseChannelLayer):
         redis.call('expire', KEYS[1], ARGV[2])
         redis.call('rpush', KEYS[2], KEYS[1])
         redis.call('expire', KEYS[2], ARGV[2] + 1)
+    """
+
+    # Single-command to increment counter stats.
+    # Keys: channel_stat, global_stat
+    # Args: channel_stat_expiry, global_stat_expiry
+    lua_incrstatcounters = """
+        redis.call('incr', KEYS[1])
+        redis.call('expire', KEYS[1], ARGV[1])
+        redis.call('incr', KEYS[2])
+        redis.call('expire', KEYS[2], ARGV[2])
+
     """
 
     lua_lpopmany = """
