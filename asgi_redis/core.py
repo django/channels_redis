@@ -290,6 +290,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         for connection in self._connection_list:
             self.delprefix(keys=[], args=[self.prefix+"*"], client=connection)
+            self.delprefix(keys=[], args=[self.stats_prefix+"*"], client=connection)
 
     ### Twisted extension ###
 
@@ -352,14 +353,14 @@ class RedisChannelLayer(BaseChannelLayer):
             # 'messages_max_age': 0,
             'channel_full_count': 0,
         }
-        prefix = '{stat_prefix}{global_key}'.fromat(self.stats_prefix, self.global_stats_key)
+        prefix = self.stats_prefix + self.global_stats_key
         for connection in self._connection_list:
             messages_count, channel_full_count = connection.mget(
                 prefix + ':messages_count',
                 prefix + ':channel_full_count',
             )
-            statistics['messages_count'] += messages_count or 0
-            statistics['channel_full_count'] += channel_full_count or 0
+            statistics['messages_count'] += int(messages_count or 0)
+            statistics['channel_full_count'] += int(channel_full_count or 0)
 
         return statistics
 
@@ -380,7 +381,7 @@ class RedisChannelLayer(BaseChannelLayer):
             'messages_max_age': 0,
             'channel_full_count': 0,
         }
-        prefix = '{stat_prefix}{channel}'.fromat(self.stats_prefix, channel)
+        prefix = self.stats_prefix + channel
 
         if "!" in channel or "?" in channel:
             connections = [self.connection(self.consistent_hash(channel))]
@@ -395,8 +396,8 @@ class RedisChannelLayer(BaseChannelLayer):
                 prefix + ':messages_count',
                 prefix + ':channel_full_count',
             )
-            statistics['messages_count'] += messages_count or 0
-            statistics['channel_full_count'] += channel_full_count or 0
+            statistics['messages_count'] += int(messages_count or 0)
+            statistics['channel_full_count'] += int(channel_full_count or 0)
             statistics['messages_pending'] += connection.llen(channel_key)
             oldest_message = connection.lindex(channel_key, 0)
             if oldest_message:
