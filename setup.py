@@ -29,7 +29,7 @@ setup(
         'msgpack-python',
         'asgiref>=1.0.0',
     ],
-    extras_requires={
+    extras_require={
         "cryptography": ['cryptography>=1.3.0'],
     }
 )
