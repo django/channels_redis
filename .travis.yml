@@ -2,16 +2,11 @@ sudo: false
 language: python
 python:
   - "2.7"
+  - "3.4"
   - "3.5"
-env:
-  - TWISTED=true
-  - TWISTED=false
 services:
   - redis-server
 install:
-  - if [[ $TRAVIS_PYTHON_VERSION == 2.7 ]]; then pip install unittest2; fi
-  - if [[ $TWISTED == true ]]; then pip install twisted txredisapi; fi
-  - pip install six msgpack-python redis asgiref cffi cryptography asgi_ipc
-script:
-  - python setup.py develop
-  - if [[ $TRAVIS_PYTHON_VERSION == 2.7 ]]; then python -m unittest2; else python -m unittest; fi
+  - pip install -e .[tests]
+  - pip freeze
+script: python -m unittest discover
