@@ -10,6 +10,8 @@ def get_version():
 # We use the README as the long_description
 readme_path = os.path.join(os.path.dirname(__file__), "README.rst")
 
+crypto_requires = ['cryptography>=1.3.0']
+
 
 setup(
     name='asgi_redis',
@@ -29,7 +31,8 @@ setup(
         'msgpack-python',
         'asgiref>=1.0.0',
     ],
-    extras_requires={
-        "cryptography": ['cryptography>=1.3.0'],
+    extras_require={
+        "cryptography": crypto_requires,
+        "tests": crypto_requires + ['tox', 'asgi_ipc', 'twisted', 'txredisapi'],
     }
 )
