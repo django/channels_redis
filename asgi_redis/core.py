@@ -39,8 +39,21 @@ class RedisChannelLayer(BaseChannelLayer):
     channel_statistics_expiry = 3600
     global_stats_key = '#global#'  # needs to be invalid as a channel name
 
-    def __init__(self, expiry=60, hosts=None, prefix="asgi:", group_expiry=86400, capacity=100, channel_capacity=None,
-                 symmetric_encryption_keys=None, stats_prefix="asgi-meta:"):
+    def __init__(
+        self,
+        expiry=60,
+        hosts=None,
+        prefix="asgi:",
+        group_expiry=86400,
+        capacity=100,
+        channel_capacity=None,
+        symmetric_encryption_keys=None,
+        stats_prefix="asgi-meta:",
+        socket_connect_timeout=None,
+        socket_timeout=None,
+        socket_keepalive=None,
+        socket_keepalive_options=None,
+    ):
         super(RedisChannelLayer, self).__init__(
             expiry=expiry,
             group_expiry=group_expiry,
@@ -67,7 +80,16 @@ class RedisChannelLayer(BaseChannelLayer):
         self.ring_size = len(self.hosts)
         # Create connections ahead of time (they won't call out just yet, but
         # we want to connection-pool them later)
-        self._connection_list = self._generate_connections()
+        if socket_timeout < self.blpop_timeout:
+            raise ValueError("The socket timeout must be at least %s seconds" % self.blpop_timeout)
+        self._connection_list = self._generate_connections(
+            redis_kwargs={
+                "socket_connect_timeout": socket_connect_timeout,
+                "socket_timeout": socket_timeout,
+                "socket_keepalive": socket_keepalive,
+                "socket_keepalive_options": socket_keepalive_options,
+            },
+        )
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
         self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
@@ -91,9 +113,9 @@ class RedisChannelLayer(BaseChannelLayer):
             self.crypter = None
         self.stats_prefix = stats_prefix
 
-    def _generate_connections(self):
+    def _generate_connections(self, redis_kwargs):
         return [
-            redis.Redis.from_url(host)
+            redis.Redis.from_url(host, **redis_kwargs)
             for host in self.hosts
         ]
 
