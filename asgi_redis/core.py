@@ -80,7 +80,7 @@ class RedisChannelLayer(BaseChannelLayer):
         self.ring_size = len(self.hosts)
         # Create connections ahead of time (they won't call out just yet, but
         # we want to connection-pool them later)
-        if socket_timeout < self.blpop_timeout:
+        if socket_timeout and socket_timeout < self.blpop_timeout:
             raise ValueError("The socket timeout must be at least %s seconds" % self.blpop_timeout)
         self._connection_list = self._generate_connections(
             redis_kwargs={
