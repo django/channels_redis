@@ -7,7 +7,15 @@ python:
   - "3.6"
 services:
   - redis-server
+cache:
+  directories:
+  - $HOME/.cache/pip/wheels
 install:
+  - pip install -U pip wheel setuptools
+  - pip install 'git+https://github.com/django/channels.git#egg=channels-benchmark&subdirectory=testproject'
   - pip install -e .[tests]
   - pip freeze
-script: python -m unittest discover
+script: py.test
+# TODO: setup test coverage tracking service.
+# after_success:
+#   - codecov
