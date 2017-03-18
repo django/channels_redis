@@ -184,7 +184,10 @@ class RedisChannelLayer(BaseChannelLayer):
             connection = self.connection(index)
             # Pop off any waiting message
             if block:
-                result = connection.blpop(list_names, timeout=self.blpop_timeout)
+                try:
+                    result = connection.blpop(list_names, timeout=self.blpop_timeout)
+                except redis.exceptions.TimeoutError:
+                    continue
             else:
                 result = self.lpopmany(keys=list_names, client=connection)
             if result:
