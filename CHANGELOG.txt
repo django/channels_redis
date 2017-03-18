@@ -1,3 +1,12 @@
+1.1.0 (2017-03-18)
+------------------
+
+* Support for the ASGI statistics extension
+* Distribution of items over multiple servers using consistent hashing is improved
+* Handles timeout exceptions in newer redis-py library versions correctly
+* Support for configuring the socket_connect_timeout, socket_timeout, socket_keepalive and socket_keepalive_options
+  options that are passed to redis-py.
+
 1.0.0 (2016-11-05)
 ------------------
 
