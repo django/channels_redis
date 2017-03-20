@@ -170,6 +170,7 @@ for the RedisSentinelChannelLayer, add a list of the service names.
 Redis Sentinel mode does not support URL-style connection strings, just tuple-based ones.
 
 Configuration for Sentinel mode looks like this:
+
 .. code-block:: python
 
     CHANNEL_LAYERS = {
@@ -178,8 +179,7 @@ Configuration for Sentinel mode looks like this:
             "CONFIG": {
                 "hosts": [("10.0.0.1", 26739), ("10.0.0.2", 26379), ("10.0.0.3", 26379)],
                 "services": ["shard1", "shard2", "shard3"],
-            }
-
+            },
         },
     }
 
