@@ -1,14 +1,26 @@
 from __future__ import unicode_literals
 import time
 import unittest
+import redis.sentinel
+from redis.sentinel import MasterNotFoundError
 from asgi_redis import RedisSentinelChannelLayer
 from asgiref.conformance import ConformanceTestCase
 
+service_name = "local"
+
+def sentinel_exists():
+    sen = redis.sentinel.Sentinel([("127.0.0.1", 26379)],)
+    try:
+        sen.discover_master(service_name)
+    except MasterNotFoundError:
+        return False
+    return True
 
 # Default conformance tests
+@unittest.skipUnless(sentinel_exists(), "Redis sentinel not running")
 class RedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisSentinelChannelLayer(expiry=1, group_expiry=2, capacity=5, services=['local'])
+    channel_layer = RedisSentinelChannelLayer(expiry=1, group_expiry=2, capacity=5, services=[service_name])
     expiry_delay = 1.1
     capacity_limit = 5
 
@@ -91,6 +103,7 @@ class RedisLayerTests(ConformanceTestCase):
 
 
 # Encrypted variant of conformance tests
+@unittest.skipUnless(sentinel_exists(), "Redis sentinel not running")
 class EncryptedRedisLayerTests(ConformanceTestCase):
 
     channel_layer = RedisSentinelChannelLayer(

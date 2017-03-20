@@ -3,7 +3,6 @@ from asgi_redis import RedisChannelLayer
 from redis import sentinel
 import random
 import six
-import string
 random.seed()
 
 
@@ -37,8 +36,7 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
                 socket_timeout=None,
                 socket_keepalive=None,
                 socket_keepalive_options=None,
-                services=None,
-        ):
+                services=None):
             self.services = self._setup_services(services)
 
             # Precalculate some values for ring selection
@@ -67,7 +65,6 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
                                                             socket_timeout,
                                                             socket_keepalive,
                                                             socket_keepalive_options)
-
 
     def _setup_services(self, services):
         final_services = list()
