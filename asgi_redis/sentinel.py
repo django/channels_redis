@@ -39,47 +39,13 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
                 socket_keepalive_options=None,
                 services=None,
         ):
-            super(RedisChannelLayer, self).__init__(
-                expiry=expiry,
-                group_expiry=group_expiry,
-                capacity=capacity,
-                channel_capacity=channel_capacity,
-            )
-            # Make sure they provided some hosts, or provide a default
-            if not hosts:
-                hosts = [("localhost", 26379)]
-            self.hosts = list()
-            self.services = list()
+            self.services = self._setup_services(services)
 
-            if not services:
-                raise ValueError("Must specify at least one service name monitored by Sentinel")
-
-            if isinstance(services, six.string_types):
-                raise ValueError("Sentinel service types must be specified as an iterable list of strings")
-
-            for entry in services:
-                if not isinstance(entry, six.string_types):
-                    raise ValueError("Sentinel service types must be specified as strings.")
-                else:
-                    self.services.append(entry)
-
-            if isinstance(hosts, six.string_types):
-                # user accidentally used one host string instead of providing a list of hosts
-                raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
-
-            for entry in hosts:
-                if isinstance(entry, six.string_types):
-                    raise ValueError("Sentinel Redis host entries must be specified as tuples, not strings.")
-                else:
-                    self.hosts.append(entry)
-            self.prefix = prefix
-            assert isinstance(self.prefix, six.text_type), "Prefix must be unicode"
             # Precalculate some values for ring selection
             self.ring_size = len(self.services)
-            # Create connections ahead of time (they won't call out just yet, but
-            # we want to connection-pool them later)
-            if socket_timeout and socket_timeout < self.blpop_timeout:
-                raise ValueError("The socket timeout must be at least %s seconds" % self.blpop_timeout)
+
+            self.hosts = self._setup_hosts(hosts)
+
             self._sentinel = self._generate_sentinel(
                 redis_kwargs={
                     "socket_connect_timeout": socket_connect_timeout,
@@ -88,32 +54,59 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
                     "socket_keepalive_options": socket_keepalive_options,
                 },
             )
-            # Decide on a unique client prefix to use in ! sections
-            # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
-            self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
-            # Register scripts
-            connection = self.connection(None)
-            self.chansend = connection.register_script(self.lua_chansend)
-            self.lpopmany = connection.register_script(self.lua_lpopmany)
-            self.delprefix = connection.register_script(self.lua_delprefix)
-            self.incrstatcounters = connection.register_script(self.lua_incrstatcounters)
-            # See if we can do encryption if they asked
-            if symmetric_encryption_keys:
-                if isinstance(symmetric_encryption_keys, six.string_types):
-                    raise ValueError("symmetric_encryption_keys must be a list of possible keys")
-                try:
-                    from cryptography.fernet import MultiFernet
-                except ImportError:
-                    raise ValueError("Cannot run with encryption without 'cryptography' installed.")
-                sub_fernets = [self.make_fernet(key) for key in symmetric_encryption_keys]
-                self.crypter = MultiFernet(sub_fernets)
+
+            super(RedisSentinelChannelLayer, self).__init__(expiry,
+                                                            hosts,
+                                                            prefix,
+                                                            group_expiry,
+                                                            capacity,
+                                                            channel_capacity,
+                                                            symmetric_encryption_keys,
+                                                            stats_prefix,
+                                                            socket_connect_timeout,
+                                                            socket_timeout,
+                                                            socket_keepalive,
+                                                            socket_keepalive_options)
+
+
+    def _setup_services(self, services):
+        final_services = list()
+
+        if not services:
+            raise ValueError("Must specify at least one service name monitored by Sentinel")
+
+        if isinstance(services, six.string_types):
+            raise ValueError("Sentinel service types must be specified as an iterable list of strings")
+
+        for entry in services:
+            if not isinstance(entry, six.string_types):
+                raise ValueError("Sentinel service types must be specified as strings.")
             else:
-                self.crypter = None
-            self.stats_prefix = stats_prefix
+                final_services.append(entry)
+        return final_services
+
+    def _setup_hosts(self, hosts):
+        if not hosts:
+            hosts = [("localhost", 26379)]
+        final_hosts = list()
+        if isinstance(hosts, six.string_types):
+            # user accidentally used one host string instead of providing a list of hosts
+            raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
+
+        for entry in hosts:
+            if isinstance(entry, six.string_types):
+                raise ValueError("Sentinel Redis host entries must be specified as tuples, not strings.")
+            else:
+                final_hosts.append(entry)
+        return final_hosts
 
     def _generate_sentinel(self, redis_kwargs):
         # pass redis_kwargs through to the sentinel object to be used for each connection to the redis servers.
         return sentinel.Sentinel(self.hosts, **redis_kwargs)
+
+    def _generate_connections(self, redis_kwargs):
+        # override this for purposes of super's init.
+        return list()
 
     def flush(self):
         """

@@ -60,20 +60,8 @@ class RedisChannelLayer(BaseChannelLayer):
             capacity=capacity,
             channel_capacity=channel_capacity,
         )
-        # Make sure they provided some hosts, or provide a default
-        if not hosts:
-            hosts = [("localhost", 6379)]
-        self.hosts = []
+        self.hosts = self._setup_hosts(hosts)
 
-        if isinstance(hosts, six.string_types):
-            # user accidentally used one host string instead of providing a list of hosts
-            raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
-
-        for entry in hosts:
-            if isinstance(entry, six.string_types):
-                self.hosts.append(entry)
-            else:
-                self.hosts.append("redis://%s:%d/0" % (entry[0], entry[1]))
         self.prefix = prefix
         assert isinstance(self.prefix, six.text_type), "Prefix must be unicode"
         # Precalculate some values for ring selection
@@ -93,12 +81,35 @@ class RedisChannelLayer(BaseChannelLayer):
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
         self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
-        # Register scripts
+        self._register_scripts()
+        self._setup_enrcyption(symmetric_encryption_keys)
+        self.stats_prefix = stats_prefix
+
+    def _setup_hosts(self, hosts):
+        # Make sure they provided some hosts, or provide a default
+        final_hosts = list()
+        if not hosts:
+            hosts = [("localhost", 6379)]
+
+        if isinstance(hosts, six.string_types):
+            # user accidentally used one host string instead of providing a list of hosts
+            raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
+
+        for entry in hosts:
+            if isinstance(entry, six.string_types):
+                final_hosts.append(entry)
+            else:
+                final_hosts.append("redis://%s:%d/0" % (entry[0], entry[1]))
+        return final_hosts
+
+    def _register_scripts(self):
         connection = self.connection(None)
         self.chansend = connection.register_script(self.lua_chansend)
         self.lpopmany = connection.register_script(self.lua_lpopmany)
         self.delprefix = connection.register_script(self.lua_delprefix)
         self.incrstatcounters = connection.register_script(self.lua_incrstatcounters)
+
+    def _setup_enrcyption(self, symmetric_encryption_keys):
         # See if we can do encryption if they asked
         if symmetric_encryption_keys:
             if isinstance(symmetric_encryption_keys, six.string_types):
@@ -111,7 +122,6 @@ class RedisChannelLayer(BaseChannelLayer):
             self.crypter = MultiFernet(sub_fernets)
         else:
             self.crypter = None
-        self.stats_prefix = stats_prefix
 
     def _generate_connections(self, redis_kwargs):
         return [
