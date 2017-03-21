@@ -386,12 +386,15 @@ class RedisChannelLayer(BaseChannelLayer):
         these are only avaliable per channel.
 
         """
+        return self._count_global_stats(self._connection_list)
+
+    def _count_global_stats(self, connection_list):
         statistics = {
             self.STAT_MESSAGES_COUNT: 0,
             self.STAT_CHANNEL_FULL: 0,
         }
         prefix = self.stats_prefix + self.global_stats_key
-        for connection in self._connection_list:
+        for connection in connection_list:
             messages_count, channel_full_count = connection.mget(
                 ':'.join((prefix, self.STAT_MESSAGES_COUNT)),
                 ':'.join((prefix, self.STAT_CHANNEL_FULL)),
@@ -412,6 +415,14 @@ class RedisChannelLayer(BaseChannelLayer):
 
         This implementation does not provide calculated per second values
         """
+        if "!" in channel or "?" in channel:
+            connections = [self.connection(self.consistent_hash(channel))]
+        else:
+            # if we don't know where it is, we have to check in all shards
+            connections = self._connection_list
+        return self._count_channel_stats(channel, connections)
+
+    def _count_channel_stats(self, channel, connections):
         statistics = {
             self.STAT_MESSAGES_COUNT: 0,
             self.STAT_MESSAGES_PENDING: 0,
@@ -420,14 +431,7 @@ class RedisChannelLayer(BaseChannelLayer):
         }
         prefix = self.stats_prefix + channel
 
-        if "!" in channel or "?" in channel:
-            connections = [self.connection(self.consistent_hash(channel))]
-        else:
-            # if we don't know where it is, we have to check in all shards
-            connections = self._connection_list
-
         channel_key = self.prefix + channel
-
         for connection in connections:
             messages_count, channel_full_count = connection.mget(
                 ':'.join((prefix, self.STAT_MESSAGES_COUNT)),
