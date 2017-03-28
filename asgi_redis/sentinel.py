@@ -53,18 +53,19 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
                 },
             )
 
-            super(RedisSentinelChannelLayer, self).__init__(expiry,
-                                                            hosts,
-                                                            prefix,
-                                                            group_expiry,
-                                                            capacity,
-                                                            channel_capacity,
-                                                            symmetric_encryption_keys,
-                                                            stats_prefix,
-                                                            socket_connect_timeout,
-                                                            socket_timeout,
-                                                            socket_keepalive,
-                                                            socket_keepalive_options)
+            super(RedisSentinelChannelLayer, self).__init__(
+                expiry,
+                hosts,
+                prefix,
+                group_expiry,
+                capacity,
+                channel_capacity,
+                symmetric_encryption_keys,
+                stats_prefix,
+                socket_connect_timeout,
+                socket_timeout,
+                socket_keepalive,
+                socket_keepalive_options)
 
     def _setup_services(self, services):
         final_services = list()

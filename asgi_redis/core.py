@@ -82,7 +82,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
         self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
         self._register_scripts()
-        self._setup_enrcyption(symmetric_encryption_keys)
+        self._setup_encryption(symmetric_encryption_keys)
         self.stats_prefix = stats_prefix
 
     def _setup_hosts(self, hosts):
@@ -109,7 +109,7 @@ class RedisChannelLayer(BaseChannelLayer):
         self.delprefix = connection.register_script(self.lua_delprefix)
         self.incrstatcounters = connection.register_script(self.lua_incrstatcounters)
 
-    def _setup_enrcyption(self, symmetric_encryption_keys):
+    def _setup_encryption(self, symmetric_encryption_keys):
         # See if we can do encryption if they asked
         if symmetric_encryption_keys:
             if isinstance(symmetric_encryption_keys, six.string_types):
