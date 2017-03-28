@@ -131,7 +131,13 @@ class RedisChannelLayer(BaseChannelLayer):
 
     ### ASGI API ###
 
-    extensions = ["groups", "flush", "twisted", "statistics"]
+    extensions = ["groups", "flush", "statistics"]
+    try:
+        import txredisapi
+    except ImportError:
+        pass
+    else:
+        extensions.append("twisted")
 
     def send(self, channel, message):
         # Typecheck
