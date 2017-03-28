@@ -127,6 +127,12 @@ class RedisChannelLayer(BaseChannelLayer):
         # Typecheck
         assert isinstance(message, dict), "message is not a dict"
         assert self.valid_channel_name(channel), "Channel name not valid"
+        # Make sure the message does not contain reserved keys
+        assert "__asgi_channel__" not in message
+        # If it's a process-local channel, strip off local part and stick full name in message
+        if "!" in channel:
+            message['__asgi_channel__'] = channel
+            channel = self.non_local_name(channel)
         # Write out message into expiring key (avoids big items in list)
         # TODO: Use extended set, drop support for older redis?
         message_key = self.prefix + uuid.uuid4().hex
@@ -196,7 +202,13 @@ class RedisChannelLayer(BaseChannelLayer):
                 if content is None:
                     continue
                 # Return the channel it's from and the message
-                return result[0][len(self.prefix):].decode("utf8"), self.deserialize(content)
+                channel = result[0][len(self.prefix):].decode("utf8")
+                message = self.deserialize(content)
+                # If there is a full channel name stored in the message, unpack it.
+                if "__asgi_channel__" in message:
+                    channel = message['__asgi_channel__']
+                    del message['__asgi_channel__']
+                return channel, message
             else:
                 return None, None
 
@@ -211,7 +223,9 @@ class RedisChannelLayer(BaseChannelLayer):
             return None
         # Check channel names are valid
         channels = list(channels)
-        assert all(self.valid_channel_name(channel) for channel in channels), "One or more channel names invalid"
+        assert all(
+            self.valid_channel_name(channel, receive=True) for channel in channels
+        ), "One or more channel names invalid"
         # Work out what servers to listen on for the given channels
         indexes = {}
         random_index = self.random_index()
@@ -231,7 +245,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # Keep making channel names till one isn't present.
         while True:
             random_string = "".join(random.choice(string.ascii_letters) for i in range(12))
-            assert pattern.endswith("!") or pattern.endswith("?")
+            assert pattern.endswith("?")
             new_name = pattern + random_string
             # Get right connection
             index = self.consistent_hash(new_name)
