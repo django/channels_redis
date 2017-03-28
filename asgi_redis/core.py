@@ -365,7 +365,13 @@ class RedisChannelLayer(BaseChannelLayer):
                     if content is None:
                         continue
                     # Return the channel it's from and the message
-                    defer.returnValue((result[0][len(self.prefix):], self.deserialize(content)))
+                    channel = result[0][len(self.prefix):]
+                    message = self.deserialize(content)
+                    # If there is a full channel name stored in the message, unpack it.
+                    if "__asgi_channel__" in message:
+                        channel = message['__asgi_channel__']
+                        del message['__asgi_channel__']
+                    defer.returnValue((channel, message))
                 else:
                     defer.returnValue((None, None))
             finally:
