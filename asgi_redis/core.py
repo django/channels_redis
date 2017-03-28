@@ -60,20 +60,8 @@ class RedisChannelLayer(BaseChannelLayer):
             capacity=capacity,
             channel_capacity=channel_capacity,
         )
-        # Make sure they provided some hosts, or provide a default
-        if not hosts:
-            hosts = [("localhost", 6379)]
-        self.hosts = []
+        self.hosts = self._setup_hosts(hosts)
 
-        if isinstance(hosts, six.string_types):
-            # user accidentally used one host string instead of providing a list of hosts
-            raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
-
-        for entry in hosts:
-            if isinstance(entry, six.string_types):
-                self.hosts.append(entry)
-            else:
-                self.hosts.append("redis://%s:%d/0" % (entry[0], entry[1]))
         self.prefix = prefix
         assert isinstance(self.prefix, six.text_type), "Prefix must be unicode"
         # Precalculate some values for ring selection
@@ -93,12 +81,35 @@ class RedisChannelLayer(BaseChannelLayer):
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
         self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
-        # Register scripts
+        self._register_scripts()
+        self._setup_encryption(symmetric_encryption_keys)
+        self.stats_prefix = stats_prefix
+
+    def _setup_hosts(self, hosts):
+        # Make sure they provided some hosts, or provide a default
+        final_hosts = list()
+        if not hosts:
+            hosts = [("localhost", 6379)]
+
+        if isinstance(hosts, six.string_types):
+            # user accidentally used one host string instead of providing a list of hosts
+            raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
+
+        for entry in hosts:
+            if isinstance(entry, six.string_types):
+                final_hosts.append(entry)
+            else:
+                final_hosts.append("redis://%s:%d/0" % (entry[0], entry[1]))
+        return final_hosts
+
+    def _register_scripts(self):
         connection = self.connection(None)
         self.chansend = connection.register_script(self.lua_chansend)
         self.lpopmany = connection.register_script(self.lua_lpopmany)
         self.delprefix = connection.register_script(self.lua_delprefix)
         self.incrstatcounters = connection.register_script(self.lua_incrstatcounters)
+
+    def _setup_encryption(self, symmetric_encryption_keys):
         # See if we can do encryption if they asked
         if symmetric_encryption_keys:
             if isinstance(symmetric_encryption_keys, six.string_types):
@@ -111,7 +122,6 @@ class RedisChannelLayer(BaseChannelLayer):
             self.crypter = MultiFernet(sub_fernets)
         else:
             self.crypter = None
-        self.stats_prefix = stats_prefix
 
     def _generate_connections(self, redis_kwargs):
         return [
@@ -396,12 +406,15 @@ class RedisChannelLayer(BaseChannelLayer):
         these are only avaliable per channel.
 
         """
+        return self._count_global_stats(self._connection_list)
+
+    def _count_global_stats(self, connection_list):
         statistics = {
             self.STAT_MESSAGES_COUNT: 0,
             self.STAT_CHANNEL_FULL: 0,
         }
         prefix = self.stats_prefix + self.global_stats_key
-        for connection in self._connection_list:
+        for connection in connection_list:
             messages_count, channel_full_count = connection.mget(
                 ':'.join((prefix, self.STAT_MESSAGES_COUNT)),
                 ':'.join((prefix, self.STAT_CHANNEL_FULL)),
@@ -422,6 +435,14 @@ class RedisChannelLayer(BaseChannelLayer):
 
         This implementation does not provide calculated per second values
         """
+        if "!" in channel or "?" in channel:
+            connections = [self.connection(self.consistent_hash(channel))]
+        else:
+            # if we don't know where it is, we have to check in all shards
+            connections = self._connection_list
+        return self._count_channel_stats(channel, connections)
+
+    def _count_channel_stats(self, channel, connections):
         statistics = {
             self.STAT_MESSAGES_COUNT: 0,
             self.STAT_MESSAGES_PENDING: 0,
@@ -430,14 +451,7 @@ class RedisChannelLayer(BaseChannelLayer):
         }
         prefix = self.stats_prefix + channel
 
-        if "!" in channel or "?" in channel:
-            connections = [self.connection(self.consistent_hash(channel))]
-        else:
-            # if we don't know where it is, we have to check in all shards
-            connections = self._connection_list
-
         channel_key = self.prefix + channel
-
         for connection in connections:
             messages_count, channel_full_count = connection.mget(
                 ':'.join((prefix, self.STAT_MESSAGES_COUNT)),
