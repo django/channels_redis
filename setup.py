@@ -11,6 +11,7 @@ def get_version():
 readme_path = os.path.join(os.path.dirname(__file__), "README.rst")
 
 crypto_requires = ['cryptography>=1.3.0']
+twisted_requires = ['twisted>=17.1', 'txredisapi']
 
 
 setup(
@@ -33,6 +34,7 @@ setup(
     ],
     extras_require={
         "cryptography": crypto_requires,
-        "tests": crypto_requires + ['tox', 'asgi_ipc', 'twisted', 'txredisapi'],
+        "twisted": twisted_requires,
+        "tests": crypto_requires + twisted_requires + ['tox', 'asgi_ipc'],
     }
 )
