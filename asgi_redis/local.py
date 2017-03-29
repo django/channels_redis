@@ -17,7 +17,14 @@ class RedisLocalChannelLayer(RedisChannelLayer):
 
     def __init__(self, expiry=60, prefix="asgi:", group_expiry=86400, capacity=100, channel_capacity=None, **kwargs):
         # Initialise the base class
-        super(RedisLocalChannelLayer, self).__init__(**kwargs)
+        super(RedisLocalChannelLayer, self).__init__(
+            prefix = prefix,
+            expiry = expiry,
+            group_expiry = group_expiry,
+            capacity = capacity,
+            channel_capacity = channel_capacity,
+            **kwargs
+        )
         # Set up our local transport layer as well
         try:
             from asgi_ipc import IPCChannelLayer
