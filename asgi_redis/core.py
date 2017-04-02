@@ -147,6 +147,7 @@ class RedisChannelLayer(BaseChannelLayer):
         assert "__asgi_channel__" not in message
         # If it's a process-local channel, strip off local part and stick full name in message
         if "!" in channel:
+            message = dict(message.items())
             message['__asgi_channel__'] = channel
             channel = self.non_local_name(channel)
         # Write out message into expiring key (avoids big items in list)
