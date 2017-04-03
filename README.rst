@@ -130,6 +130,14 @@ If you're using Django, you may also wish to set this to your site's
         },
     }
 
+``connection_kwargs``
+---------------------
+
+Optional extra arguments to pass to the ``redis-py`` connection class. Options
+include ``socket_connect_timeout``, ``socket_timeout``, ``socket_keepalive``,
+and ``socket_keepalive_options``. See the
+`redis-py documentation <https://redis-py.readthedocs.io/en/latest/>`_ for more.
+
 
 Local-and-Remote Mode
 ---------------------

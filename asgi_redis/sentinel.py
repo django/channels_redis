@@ -23,49 +23,40 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
      across.
     """
     def __init__(
-                self,
-                expiry=60,
-                hosts=None,
-                prefix="asgi:",
-                group_expiry=86400,
-                capacity=100,
-                channel_capacity=None,
-                symmetric_encryption_keys=None,
-                stats_prefix="asgi-meta:",
-                socket_connect_timeout=None,
-                socket_timeout=None,
-                socket_keepalive=None,
-                socket_keepalive_options=None,
-                services=None):
-            self.services = self._setup_services(services)
+        self,
+        expiry=60,
+        hosts=None,
+        prefix="asgi:",
+        group_expiry=86400,
+        capacity=100,
+        channel_capacity=None,
+        symmetric_encryption_keys=None,
+        stats_prefix="asgi-meta:",
+        connection_kwargs=None,
+        services=None,
+    ):
+        self.services = self._setup_services(services)
 
-            # Precalculate some values for ring selection
-            self.ring_size = len(self.services)
+        # Precalculate some values for ring selection
+        self.ring_size = len(self.services)
 
-            self.hosts = self._setup_hosts(hosts)
+        self.hosts = self._setup_hosts(hosts)
 
-            self._sentinel = self._generate_sentinel(
-                redis_kwargs={
-                    "socket_connect_timeout": socket_connect_timeout,
-                    "socket_timeout": socket_timeout,
-                    "socket_keepalive": socket_keepalive,
-                    "socket_keepalive_options": socket_keepalive_options,
-                },
-            )
+        self._sentinel = self._generate_sentinel(
+            redis_kwargs=connection_kwargs or {},
+        )
 
-            super(RedisSentinelChannelLayer, self).__init__(
-                expiry,
-                hosts,
-                prefix,
-                group_expiry,
-                capacity,
-                channel_capacity,
-                symmetric_encryption_keys,
-                stats_prefix,
-                socket_connect_timeout,
-                socket_timeout,
-                socket_keepalive,
-                socket_keepalive_options)
+        super(RedisSentinelChannelLayer, self).__init__(
+            expiry = expiry,
+            hosts = hosts,
+            prefix = prefix,
+            group_expiry = group_expiry,
+            capacity = capacity,
+            channel_capacity = channel_capacity,
+            symmetric_encryption_keys = symmetric_encryption_keys,
+            stats_prefix = stats_prefix,
+            connection_kwargs = connection_kwargs,
+        )
 
     def _setup_services(self, services):
         final_services = list()

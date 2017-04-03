@@ -49,10 +49,7 @@ class RedisChannelLayer(BaseChannelLayer):
         channel_capacity=None,
         symmetric_encryption_keys=None,
         stats_prefix="asgi-meta:",
-        socket_connect_timeout=None,
-        socket_timeout=None,
-        socket_keepalive=None,
-        socket_keepalive_options=None,
+        connection_kwargs=None,
     ):
         super(RedisChannelLayer, self).__init__(
             expiry=expiry,
@@ -68,15 +65,11 @@ class RedisChannelLayer(BaseChannelLayer):
         self.ring_size = len(self.hosts)
         # Create connections ahead of time (they won't call out just yet, but
         # we want to connection-pool them later)
+        socket_timeout = connection_kwargs and connection_kwargs.get("socket_timeout", None)
         if socket_timeout and socket_timeout < self.blpop_timeout:
             raise ValueError("The socket timeout must be at least %s seconds" % self.blpop_timeout)
         self._connection_list = self._generate_connections(
-            redis_kwargs={
-                "socket_connect_timeout": socket_connect_timeout,
-                "socket_timeout": socket_timeout,
-                "socket_keepalive": socket_keepalive,
-                "socket_keepalive_options": socket_keepalive_options,
-            },
+            redis_kwargs=connection_kwargs or {},
         )
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
