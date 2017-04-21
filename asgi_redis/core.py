@@ -365,6 +365,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 host=sync_connection.connection_pool.connection_kwargs['host'],
                 port=sync_connection.connection_pool.connection_kwargs['port'],
                 dbid=sync_connection.connection_pool.connection_kwargs['db'],
+                password=sync_connection.connection_pool.connection_kwargs['password'],
             )
             try:
                 # Pop off any waiting message
