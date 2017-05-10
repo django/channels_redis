@@ -1,8 +1,11 @@
 from __future__ import unicode_literals
 from asgi_redis import RedisChannelLayer
+import redis
 from redis import sentinel
 import random
 import six
+import time
+
 random.seed()
 
 
@@ -22,6 +25,7 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
     "services" is the list of redis services monitored by the sentinel system that redis keys will be distributed
      across.
     """
+
     def __init__(
         self,
         expiry=60,
@@ -34,8 +38,16 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         stats_prefix="asgi-meta:",
         connection_kwargs=None,
         services=None,
+        sentinel_refresh_interval=0,
     ):
-        self.services = self._setup_services(services)
+        self.sentinel_refresh_interval = sentinel_refresh_interval
+        self._last_sentinel_refresh = 0
+
+        if services:
+            self._validate_service_names(services)
+            self.services = services
+        else:
+            self.services = self._get_service_info()
 
         # Precalculate some values for ring selection
         self.ring_size = len(self.services)
@@ -47,32 +59,43 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         )
 
         super(RedisSentinelChannelLayer, self).__init__(
-            expiry = expiry,
-            hosts = hosts,
-            prefix = prefix,
-            group_expiry = group_expiry,
-            capacity = capacity,
-            channel_capacity = channel_capacity,
-            symmetric_encryption_keys = symmetric_encryption_keys,
-            stats_prefix = stats_prefix,
-            connection_kwargs = connection_kwargs,
+            expiry=expiry,
+            hosts=hosts,
+            prefix=prefix,
+            group_expiry=group_expiry,
+            capacity=capacity,
+            channel_capacity=channel_capacity,
+            symmetric_encryption_keys=symmetric_encryption_keys,
+            stats_prefix=stats_prefix,
+            connection_kwargs=connection_kwargs,
         )
 
-    def _setup_services(self, services):
-        final_services = list()
-
-        if not services:
-            raise ValueError("Must specify at least one service name monitored by Sentinel")
-
+    def _validate_service_names(self, services):
         if isinstance(services, six.string_types):
             raise ValueError("Sentinel service types must be specified as an iterable list of strings")
-
         for entry in services:
             if not isinstance(entry, six.string_types):
                 raise ValueError("Sentinel service types must be specified as strings.")
-            else:
-                final_services.append(entry)
-        return final_services
+
+    def _get_service_info(self):
+        """
+        Get a list of service names from Sentinel. Tries Sentinel hosts until one succeeds; if none succeed,
+        raises a ConnectionError.
+        """
+        master_info = None
+        connection_errors = []
+        for host, port in self.hosts:
+            try:
+                redis_client = redis.StrictRedis(host=host, port=port)
+                master_info = redis_client.sentinel_masters()
+                break
+            except redis.ConnectionError as e:
+                connection_errors.append('Failed to connect to {}: {}'.format(host, e))
+                continue
+        if master_info is None:
+            raise redis.ConnectionError(
+                'Could not get master info from sentinel\n{}.'.format('\n'.join(connection_errors)))
+        return master_info.keys()
 
     def _setup_hosts(self, hosts):
         if not hosts:
@@ -97,12 +120,24 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         # override this for purposes of super's init.
         return list()
 
+    def _master_for(self, service_name):
+        if self.sentinel_refresh_interval <= 0:
+            return self._sentinel.master_for(service_name)
+        else:
+            self._populate_masters()
+            return self._master_connections[service_name]
+
+    def _populate_masters(self):
+        if (time.time() - self._last_sentinel_refresh) > self.sentinel_refresh_interval:
+            self._master_connections = {service: self._sentinel.master_for(service) for service in self.services}
+            self._last_sentinel_refresh = time.time()
+
     def flush(self):
         """
         Deletes all messages and groups on all shards.
         """
         for service_name in self.services:
-            connection = self._sentinel.master_for(service_name)
+            connection = self._master_for(service_name)
             self.delprefix(keys=[], args=[self.prefix + "*"], client=connection)
             self.delprefix(keys=[], args=[self.stats_prefix + "*"], client=connection)
 
@@ -115,13 +150,13 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         if not 0 <= index < self.ring_size:
             raise ValueError("There are only %s hosts - you asked for %s!" % (self.ring_size, index))
         service_name = self.services[index]
-        return self._sentinel.master_for(service_name)
+        return self._master_for(service_name)
 
     def random_index(self):
         return random.randint(0, len(self.services) - 1)
 
     def global_statistics(self):
-        connection_list = [self._sentinel.master_for(service_name) for service_name in self.services]
+        connection_list = [self._master_for(service_name) for service_name in self.services]
         return self._count_global_stats(connection_list)
 
     def channel_statistics(self, channel):
@@ -129,6 +164,6 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
             connections = [self.connection(self.consistent_hash(channel))]
         else:
             # if we don't know where it is, we have to check in all shards
-            connections = [self._sentinel.master_for(service_name) for service_name in self.services]
+            connections = [self._master_for(service_name) for service_name in self.services]
 
         return self._count_channel_stats(channel, connections)
