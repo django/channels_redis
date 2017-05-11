@@ -1,0 +1,40 @@
+redis-master-1:
+  image: redis:3
+redis-slave-1:
+  image: redis:3
+  command: redis-server --slaveof redis-master-1 6379
+  links:
+    - redis-master-1
+redis-master-2:
+  image: redis:3
+redis-slave-2:
+  image: redis:3
+  command: redis-server --slaveof redis-master-2 6379
+  links:
+    - redis-master-2
+redis-master-3:
+  image: redis:3
+redis-slave-3:
+  image: redis:3
+  command: redis-server --slaveof redis-master-3 6379
+  links:
+    - redis-master-3
+sentinel:
+  build: testing/sentinel
+  links:
+    - redis-master-1
+    - redis-master-2
+    - redis-master-3
+    - redis-slave-1
+    - redis-slave-2
+    - redis-slave-3
+test:
+  build: .
+  links:
+    - redis-master-1
+    - redis-master-2
+    - redis-master-3
+    - redis-slave-1
+    - redis-slave-2
+    - redis-slave-3
+    - sentinel
