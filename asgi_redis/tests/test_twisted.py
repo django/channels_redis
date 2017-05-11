@@ -23,7 +23,7 @@ class TwistedTests(twisted.trial.unittest.TestCase):
 
     def setUp(self):
         super(TwistedTests, self).setUp()
-        self.channel_layer = RedisChannelLayer(expiry=1, group_expiry=2, capacity=5)
+        self.channel_layer = RedisChannelLayer(hosts=[("redis-master-1", 6379)], expiry=1, group_expiry=2, capacity=5)
 
     @defer.inlineCallbacks
     def test_receive_twisted(self):

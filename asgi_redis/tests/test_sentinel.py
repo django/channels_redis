@@ -9,7 +9,7 @@ from asgiref.conformance import ConformanceTestCase
 service_name = "local"
 
 def sentinel_exists():
-    sen = redis.sentinel.Sentinel([("127.0.0.1", 26379)],)
+    sen = redis.sentinel.Sentinel([("sentinel", 26379)],)
     try:
         sen.discover_master(service_name)
     except MasterNotFoundError:
