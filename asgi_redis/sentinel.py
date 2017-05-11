@@ -1,7 +1,8 @@
 from __future__ import unicode_literals
 from asgi_redis import RedisChannelLayer
 import redis
-from redis import sentinel
+from redis.sentinel import Sentinel
+from redis.client import Script
 import random
 import six
 import time
@@ -23,7 +24,7 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
     tuple method of specifying hosts, as that's all the redis sentinel python library supports at the moment.
 
     "services" is the list of redis services monitored by the sentinel system that redis keys will be distributed
-     across.
+     across. If services is empty, this will fetch all services from Sentinel at initialization.
     """
 
     def __init__(
@@ -40,24 +41,6 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         services=None,
         sentinel_refresh_interval=0,
     ):
-        self.sentinel_refresh_interval = sentinel_refresh_interval
-        self._last_sentinel_refresh = 0
-
-        if services:
-            self._validate_service_names(services)
-            self.services = services
-        else:
-            self.services = self._get_service_info()
-
-        # Precalculate some values for ring selection
-        self.ring_size = len(self.services)
-
-        self.hosts = self._setup_hosts(hosts)
-
-        self._sentinel = self._generate_sentinel(
-            redis_kwargs=connection_kwargs or {},
-        )
-
         super(RedisSentinelChannelLayer, self).__init__(
             expiry=expiry,
             hosts=hosts,
@@ -70,6 +53,29 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
             connection_kwargs=connection_kwargs,
         )
 
+        # Master connection caching
+        self.sentinel_refresh_interval = sentinel_refresh_interval
+        self._last_sentinel_refresh = 0
+        self._master_connections = {}
+
+        self._sentinel = self._generate_sentinel(
+            redis_kwargs=connection_kwargs or {},
+        )
+        if services:
+            self._validate_service_names(services)
+            self.services = services
+        else:
+            self.services = self._get_service_names()
+
+        # Precalculate some values for ring selection
+        self.ring_size = len(self.services)
+
+    def _register_scripts(self):
+        self.chansend = Script(None, self.lua_chansend)
+        self.lpopmany = Script(None, self.lua_lpopmany)
+        self.delprefix = Script(None, self.lua_delprefix)
+        self.incrstatcounters = Script(None, self.lua_incrstatcounters)
+
     def _validate_service_names(self, services):
         if isinstance(services, six.string_types):
             raise ValueError("Sentinel service types must be specified as an iterable list of strings")
@@ -77,20 +83,20 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
             if not isinstance(entry, six.string_types):
                 raise ValueError("Sentinel service types must be specified as strings.")
 
-    def _get_service_info(self):
+    def _get_service_names(self):
         """
         Get a list of service names from Sentinel. Tries Sentinel hosts until one succeeds; if none succeed,
         raises a ConnectionError.
         """
         master_info = None
         connection_errors = []
-        for host, port in self.hosts:
+        for sentinel in self._sentinel.sentinels:
+            # Unfortunately, redis.sentinel.Sentinel does not support sentinel_masters, so we have to do it ourselves
             try:
-                redis_client = redis.StrictRedis(host=host, port=port)
-                master_info = redis_client.sentinel_masters()
+                master_info = sentinel.sentinel_masters()
                 break
-            except redis.ConnectionError as e:
-                connection_errors.append('Failed to connect to {}: {}'.format(host, e))
+            except (redis.ConnectionError, redis.TimeoutError) as e:
+                connection_errors.append('Failed to connect to {}: {}'.format(sentinel, e))
                 continue
         if master_info is None:
             raise redis.ConnectionError(
@@ -98,6 +104,7 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         return master_info.keys()
 
     def _setup_hosts(self, hosts):
+        # Override to only accept tuples, since the redis.sentinel.Sentinel does not accept URLs
         if not hosts:
             hosts = [("localhost", 26379)]
         final_hosts = list()
@@ -114,7 +121,7 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
 
     def _generate_sentinel(self, redis_kwargs):
         # pass redis_kwargs through to the sentinel object to be used for each connection to the redis servers.
-        return sentinel.Sentinel(self.hosts, **redis_kwargs)
+        return Sentinel(self.hosts, **redis_kwargs)
 
     def _generate_connections(self, redis_kwargs):
         # override this for purposes of super's init.
@@ -124,13 +131,13 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         if self.sentinel_refresh_interval <= 0:
             return self._sentinel.master_for(service_name)
         else:
-            self._populate_masters()
+            if (time.time() - self._last_sentinel_refresh) > self.sentinel_refresh_interval:
+                self._populate_masters()
             return self._master_connections[service_name]
 
     def _populate_masters(self):
-        if (time.time() - self._last_sentinel_refresh) > self.sentinel_refresh_interval:
-            self._master_connections = {service: self._sentinel.master_for(service) for service in self.services}
-            self._last_sentinel_refresh = time.time()
+        self._master_connections = {service: self._sentinel.master_for(service) for service in self.services}
+        self._last_sentinel_refresh = time.time()
 
     def flush(self):
         """
