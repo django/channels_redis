@@ -5,10 +5,13 @@ from asgi_redis import RedisChannelLayer
 from asgiref.conformance import ConformanceTestCase
 
 
+hosts = [("redis-master-1", 6379)]
+
+
 # Default conformance tests
 class RedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisChannelLayer(hosts=[("redis-master-1", 6379)], expiry=1, group_expiry=2, capacity=5)
+    channel_layer = RedisChannelLayer(hosts=hosts, expiry=1, group_expiry=2, capacity=5)
     expiry_delay = 1.1
     capacity_limit = 5
 
@@ -94,6 +97,7 @@ class RedisLayerTests(ConformanceTestCase):
 class EncryptedRedisLayerTests(ConformanceTestCase):
 
     channel_layer = RedisChannelLayer(
+        hosts=hosts,
         expiry=1,
         group_expiry=2,
         capacity=5,
