@@ -25,13 +25,14 @@ class RedisLayerTests(ConformanceTestCase):
 
     channel_layer = RedisSentinelChannelLayer(
         hosts=sentinel_hosts,
-        expiry=1,
+        expiry=10,
         group_expiry=2,
         capacity=5,
         services=service_names
     )
     expiry_delay = 1.1
     capacity_limit = 5
+    receive_tries = 3
 
     # The functionality this test is for is not yet present (it's not required,
     # and will slow stuff down, so will be optional), but it's here for future reference.
@@ -125,3 +126,4 @@ class EncryptedRedisLayerTests(ConformanceTestCase):
     )
     expiry_delay = 1.1
     capacity_limit = 5
+    receive_tries = 3
