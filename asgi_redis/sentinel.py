@@ -6,6 +6,7 @@ from redis.client import Script
 import random
 import six
 import time
+import itertools
 
 random.seed()
 
@@ -69,6 +70,7 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
 
         # Precalculate some values for ring selection
         self.ring_size = len(self.services)
+        self._index_generator = itertools.cycle(range(len(self.services)))
 
     def _register_scripts(self):
         self.chansend = Script(None, self.lua_chansend)

@@ -10,6 +10,7 @@ import six
 import string
 import time
 import uuid
+import itertools
 
 try:
     import txredisapi
@@ -71,6 +72,9 @@ class RedisChannelLayer(BaseChannelLayer):
         self._connection_list = self._generate_connections(
             redis_kwargs=connection_kwargs or {},
         )
+
+        self._index_generator = itertools.cycle(range(len(self.hosts)))
+
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
         self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
@@ -238,14 +242,13 @@ class RedisChannelLayer(BaseChannelLayer):
         ), "One or more channel names invalid"
         # Work out what servers to listen on for the given channels
         indexes = {}
-        random_index = self.random_index()
         for channel in channels:
             if "!" in channel or "?" in channel:
                 indexes.setdefault(self.consistent_hash(channel), []).append(
                     self.prefix + channel,
                 )
             else:
-                indexes.setdefault(random_index, []).append(
+                indexes.setdefault(self.next_index(), []).append(
                     self.prefix + channel,
                 )
         return indexes
@@ -560,6 +563,9 @@ class RedisChannelLayer(BaseChannelLayer):
         bigval = binascii.crc32(value) & 0xfff
         ring_divisor = 4096 / float(self.ring_size)
         return int(bigval / ring_divisor)
+
+    def next_index(self):
+        return next(self._index_generator)
 
     def random_index(self):
         return random.randint(0, len(self.hosts) - 1)
