@@ -6,7 +6,7 @@ from redis.sentinel import MasterNotFoundError
 from asgi_redis import RedisSentinelChannelLayer
 from asgiref.conformance import ConformanceTestCase
 
-service_names = ["master-1", "master-2", "master-3"]
+service_names = ["master-1", "master-2"]
 sentinel_hosts = [("sentinel", 26379)]
 
 
@@ -25,13 +25,13 @@ class RedisLayerTests(ConformanceTestCase):
 
     channel_layer = RedisSentinelChannelLayer(
         hosts=sentinel_hosts,
-        expiry=10,
+        expiry=1,
         group_expiry=2,
         capacity=5,
         services=service_names
     )
     expiry_delay = 1.1
-    capacity_limit = 5
+    capacity_limit = 5 * len(service_names)
     receive_tries = 3
 
     # The functionality this test is for is not yet present (it's not required,
@@ -85,7 +85,7 @@ class RedisLayerTests(ConformanceTestCase):
             }
         )
 
-        for _ in range(3):
+        for _ in range(self.capacity_limit - 2):
             self.channel_layer.send("first_channel", {"pay": "load"})
 
         for _ in range(4):
@@ -125,5 +125,5 @@ class EncryptedRedisLayerTests(ConformanceTestCase):
         services=service_names,
     )
     expiry_delay = 1.1
-    capacity_limit = 5
+    capacity_limit = 5 * len(service_names)
     receive_tries = 3
