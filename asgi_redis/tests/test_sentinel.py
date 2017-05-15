@@ -31,7 +31,6 @@ class RedisLayerTests(ConformanceTestCase):
         services=service_names
     )
     expiry_delay = 1.1
-    capacity_limit = 5 * len(service_names)
     receive_tries = 3
 
     # The functionality this test is for is not yet present (it's not required,
@@ -85,7 +84,11 @@ class RedisLayerTests(ConformanceTestCase):
             }
         )
 
-        for _ in range(self.capacity_limit - 2):
+    def test_channel_full_statistics(self):
+        if self.capacity_limit is None:
+            raise unittest.SkipTest("No test capacity specified")
+
+        for _ in range(self.capacity_limit):
             self.channel_layer.send("first_channel", {"pay": "load"})
 
         for _ in range(4):
@@ -93,23 +96,18 @@ class RedisLayerTests(ConformanceTestCase):
                 self.channel_layer.send("first_channel", {"pay": "load"})
 
         # check that channel full exception are counted as such, not towards messages
-        self.assertEqual(
-            self.channel_layer.global_statistics(),
-            {
-                'messages_count': 6,
-                'channel_full_count': 4,
-            }
-        )
+        for _ in range(self.capacity_limit):
+            self.channel_layer.send("first_channel", {"pay": "load"})
+
+        for _ in range(4):
+            with self.assertRaises(RedisSentinelChannelLayer.ChannelFull):
+                self.channel_layer.send("first_channel", {"pay": "load"})
+
+        # check that channel full exception are counted as such, not towards messages
+        self.assertEqual(self.channel_layer.global_statistics()["channel_full_count"], 4)
 
         self.assertEqual(
-            self.channel_layer.channel_statistics("first_channel"),
-            {
-                'messages_count': 5,
-                'messages_pending': 5,
-                'messages_max_age': 0,
-                'channel_full_count': 4,
-            }
-        )
+            self.channel_layer.channel_statistics("first_channel")["channel_full_count"], 4)
 
 
 # Encrypted variant of conformance tests
@@ -125,5 +123,4 @@ class EncryptedRedisLayerTests(ConformanceTestCase):
         services=service_names,
     )
     expiry_delay = 1.1
-    capacity_limit = 5 * len(service_names)
     receive_tries = 3
