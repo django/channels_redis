@@ -70,7 +70,8 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
 
         # Precalculate some values for ring selection
         self.ring_size = len(self.services)
-        self._index_generator = itertools.cycle(range(len(self.services)))
+        self._receive_index_generator = itertools.cycle(range(len(self.services)))
+        self._send_index_generator = itertools.cycle(range(len(self.services)))
 
     def _register_scripts(self):
         self.chansend = Script(None, self.lua_chansend)
