@@ -73,7 +73,9 @@ class RedisChannelLayer(BaseChannelLayer):
             redis_kwargs=connection_kwargs or {},
         )
 
-        self._index_generator = itertools.cycle(range(len(self.hosts)))
+        # Normal channels choose a host index by cycling through the available hosts
+        self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
+        self._send_index_generator = itertools.cycle(range(len(self.hosts)))
 
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
@@ -157,7 +159,8 @@ class RedisChannelLayer(BaseChannelLayer):
             index = self.consistent_hash(channel)
             connection = self.connection(index)
         else:
-            connection = self.connection(None)
+            index = next(self._send_index_generator)
+            connection = self.connection(index)
         # Use the Lua function to do the set-and-push
         try:
             self.chansend(
@@ -242,13 +245,14 @@ class RedisChannelLayer(BaseChannelLayer):
         ), "One or more channel names invalid"
         # Work out what servers to listen on for the given channels
         indexes = {}
+        index = next(self._receive_index_generator)
         for channel in channels:
             if "!" in channel or "?" in channel:
                 indexes.setdefault(self.consistent_hash(channel), []).append(
                     self.prefix + channel,
                 )
             else:
-                indexes.setdefault(self.next_index(), []).append(
+                indexes.setdefault(index, []).append(
                     self.prefix + channel,
                 )
         return indexes
@@ -563,9 +567,6 @@ class RedisChannelLayer(BaseChannelLayer):
         bigval = binascii.crc32(value) & 0xfff
         ring_divisor = 4096 / float(self.ring_size)
         return int(bigval / ring_divisor)
-
-    def next_index(self):
-        return next(self._index_generator)
 
     def random_index(self):
         return random.randint(0, len(self.hosts) - 1)
