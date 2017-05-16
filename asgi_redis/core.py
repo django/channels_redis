@@ -357,10 +357,7 @@ class RedisChannelLayer(BaseChannelLayer):
         if indexes is None:
             defer.returnValue((None, None))
         # Get a message from one of our channels
-        while True:
-            # Select a random connection to use
-            index = random.choice(list(indexes.keys()))
-            list_names = indexes[index]
+        for index, list_names in itertools.cycle(indexes.items()):
             # Shuffle list_names to avoid the first ones starving others of workers
             random.shuffle(list_names)
             # Get a sync connection for conn details
