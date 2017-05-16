@@ -199,7 +199,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # Get a message from one of our channels
         while True:
             got_expired_content = False
-            # Try each index:channels pair at least once
+            # Try each index:channels pair at least once or until a result is returned
             for index, list_names in indexes.items():
                 # Shuffle list_names to avoid the first ones starving others of workers
                 random.shuffle(list_names)
@@ -215,8 +215,8 @@ class RedisChannelLayer(BaseChannelLayer):
                     result = self.lpopmany(keys=list_names, client=connection)
                 if result:
                     content = connection.get(result[1])
-                    # If the content key expired, keep going.
                     if content is None:
+                        # If the content key expired, keep going.
                         got_expired_content = True
                         continue
                     # Return the channel it's from and the message
@@ -227,8 +227,7 @@ class RedisChannelLayer(BaseChannelLayer):
                         channel = message['__asgi_channel__']
                         del message['__asgi_channel__']
                     return channel, message
-                else:
-                    break
+            # If we only got expired content, try again
             if block or got_expired_content:
                 continue
             else:
