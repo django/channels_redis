@@ -104,7 +104,7 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         if master_info is None:
             raise redis.ConnectionError(
                 'Could not get master info from sentinel\n{}.'.format('\n'.join(connection_errors)))
-        return master_info.keys()
+        return list(master_info.keys())
 
     def _setup_hosts(self, hosts):
         # Override to only accept tuples, since the redis.sentinel.Sentinel does not accept URLs
