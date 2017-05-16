@@ -124,3 +124,16 @@ class EncryptedRedisLayerTests(ConformanceTestCase):
     )
     expiry_delay = 1.1
     receive_tries = 3
+
+
+@unittest.skipUnless(sentinel_exists(), "Redis sentinel not running")
+class AutoDiscoverRedisLayerTests(ConformanceTestCase):
+
+    channel_layer = RedisSentinelChannelLayer(
+        hosts=sentinel_hosts,
+        expiry=1,
+        group_expiry=2,
+        capacity=5
+    )
+    expiry_delay = 1.1
+    receive_tries = 3
