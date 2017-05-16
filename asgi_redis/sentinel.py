@@ -74,6 +74,7 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         self._send_index_generator = itertools.cycle(range(len(self.services)))
 
     def _register_scripts(self):
+        # Scripts are registered without a client, so they must always be called with a client or they will fail
         self.chansend = Script(None, self.lua_chansend)
         self.lpopmany = Script(None, self.lua_lpopmany)
         self.delprefix = Script(None, self.lua_delprefix)
@@ -94,16 +95,17 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         master_info = None
         connection_errors = []
         for sentinel in self._sentinel.sentinels:
-            # Unfortunately, redis.sentinel.Sentinel does not support sentinel_masters, so we have to do it ourselves
+            # Unfortunately, redis.sentinel.Sentinel does not support sentinel_masters, so we have to step
+            # through all of its connections manually
             try:
                 master_info = sentinel.sentinel_masters()
                 break
             except (redis.ConnectionError, redis.TimeoutError) as e:
-                connection_errors.append('Failed to connect to {}: {}'.format(sentinel, e))
+                connection_errors.append("Failed to connect to {}: {}".format(sentinel, e))
                 continue
         if master_info is None:
             raise redis.ConnectionError(
-                'Could not get master info from sentinel\n{}.'.format('\n'.join(connection_errors)))
+                "Could not get master info from sentinel\n{}.".format("\n".join(connection_errors)))
         return list(master_info.keys())
 
     def _setup_hosts(self, hosts):
@@ -113,7 +115,7 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         final_hosts = list()
         if isinstance(hosts, six.string_types):
             # user accidentally used one host string instead of providing a list of hosts
-            raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
+            raise ValueError("ASGI Redis hosts must be specified as an iterable list of hosts.")
 
         for entry in hosts:
             if isinstance(entry, six.string_types):
