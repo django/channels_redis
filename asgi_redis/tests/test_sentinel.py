@@ -31,7 +31,7 @@ class RedisLayerTests(ConformanceTestCase):
         services=service_names
     )
     expiry_delay = 1.1
-    receive_tries = 2
+    receive_tries = len(service_names)
 
     # The functionality this test is for is not yet present (it's not required,
     # and will slow stuff down, so will be optional), but it's here for future reference.
@@ -123,7 +123,7 @@ class EncryptedRedisLayerTests(ConformanceTestCase):
         services=service_names,
     )
     expiry_delay = 1.1
-    receive_tries = 2
+    receive_tries = len(service_names)
 
 
 # Test that the backend can auto-discover masters from Sentinel
@@ -137,4 +137,20 @@ class AutoDiscoverRedisLayerTests(ConformanceTestCase):
         capacity=5,
     )
     expiry_delay = 1.1
-    receive_tries = 2
+    receive_tries = len(service_names)
+
+
+# Test that the backend can cache Sentinel master connections if given a refresh interval
+@unittest.skipUnless(sentinel_exists(), "Redis sentinel not running")
+class CachingRedisLayerTests(ConformanceTestCase):
+
+    channel_layer = RedisSentinelChannelLayer(
+        hosts=sentinel_hosts,
+        expiry=1,
+        group_expiry=2,
+        capacity=5,
+        services=service_names,
+        sentinel_refresh_interval=60,
+    )
+    expiry_delay = 1.1
+    receive_tries = len(service_names)
