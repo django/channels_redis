@@ -197,32 +197,40 @@ class RedisChannelLayer(BaseChannelLayer):
         if indexes is None:
             return None, None
         # Get a message from one of our channels
-        for index, list_names in itertools.cycle(indexes.items()):
-            # Shuffle list_names to avoid the first ones starving others of workers
-            random.shuffle(list_names)
-            # Open a connection
-            connection = self.connection(index)
-            # Pop off any waiting message
-            if block:
-                try:
-                    result = connection.blpop(list_names, timeout=self.blpop_timeout)
-                except redis.exceptions.TimeoutError:
-                    continue
-            else:
-                result = self.lpopmany(keys=list_names, client=connection)
-            if result:
-                content = connection.get(result[1])
-                # If the content key expired, keep going.
-                if content is None:
-                    continue
-                # Return the channel it's from and the message
-                channel = result[0][len(self.prefix):].decode("utf8")
-                message = self.deserialize(content)
-                # If there is a full channel name stored in the message, unpack it.
-                if "__asgi_channel__" in message:
-                    channel = message['__asgi_channel__']
-                    del message['__asgi_channel__']
-                return channel, message
+        while True:
+            got_expired_content = False
+            # Try each index:channels pair at least once
+            for index, list_names in indexes.items():
+                # Shuffle list_names to avoid the first ones starving others of workers
+                random.shuffle(list_names)
+                # Open a connection
+                connection = self.connection(index)
+                # Pop off any waiting message
+                if block:
+                    try:
+                        result = connection.blpop(list_names, timeout=self.blpop_timeout)
+                    except redis.exceptions.TimeoutError:
+                        continue
+                else:
+                    result = self.lpopmany(keys=list_names, client=connection)
+                if result:
+                    content = connection.get(result[1])
+                    # If the content key expired, keep going.
+                    if content is None:
+                        got_expired_content = True
+                        continue
+                    # Return the channel it's from and the message
+                    channel = result[0][len(self.prefix):].decode("utf8")
+                    message = self.deserialize(content)
+                    # If there is a full channel name stored in the message, unpack it.
+                    if "__asgi_channel__" in message:
+                        channel = message['__asgi_channel__']
+                        del message['__asgi_channel__']
+                    return channel, message
+                else:
+                    break
+            if block or got_expired_content:
+                continue
             else:
                 return None, None
 
