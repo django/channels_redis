@@ -31,7 +31,7 @@ class RedisLayerTests(ConformanceTestCase):
         services=service_names
     )
     expiry_delay = 1.1
-    receive_tries = 3
+    receive_tries = 2
 
     # The functionality this test is for is not yet present (it's not required,
     # and will slow stuff down, so will be optional), but it's here for future reference.
@@ -47,7 +47,7 @@ class RedisLayerTests(ConformanceTestCase):
         time.sleep(1.2)
         # Send new message to group, ensure message never arrives
         self.channel_layer.send_group("tgme_group", {"value": "blue"})
-        channel, message = self.channel_layer.receive(["tgme_test"])
+        channel, message = self.receive(["tgme_test"])
         self.assertIs(channel, None)
         self.assertIs(message, None)
 
@@ -123,9 +123,10 @@ class EncryptedRedisLayerTests(ConformanceTestCase):
         services=service_names,
     )
     expiry_delay = 1.1
-    receive_tries = 3
+    receive_tries = 2
 
 
+# Test that the backend can auto-discover masters from Sentinel
 @unittest.skipUnless(sentinel_exists(), "Redis sentinel not running")
 class AutoDiscoverRedisLayerTests(ConformanceTestCase):
 
@@ -133,7 +134,7 @@ class AutoDiscoverRedisLayerTests(ConformanceTestCase):
         hosts=sentinel_hosts,
         expiry=1,
         group_expiry=2,
-        capacity=5
+        capacity=5,
     )
     expiry_delay = 1.1
-    receive_tries = 3
+    receive_tries = 2
