@@ -6,14 +6,16 @@ from redis.sentinel import MasterNotFoundError
 from asgi_redis import RedisSentinelChannelLayer
 from asgiref.conformance import ConformanceTestCase
 
-service_names = ["master-1", "master-2"]
-sentinel_hosts = [("sentinel", 26379)]
+from .constants import (
+    SERVICE_NAMES,
+    SENTINEL_HOSTS,
+)
 
 
 def sentinel_exists():
-    sen = redis.sentinel.Sentinel(sentinel_hosts)
+    sen = redis.sentinel.Sentinel(SENTINEL_HOSTS)
     try:
-        sen.discover_master(service_names[0])
+        sen.discover_master(SERVICE_NAMES[0])
     except MasterNotFoundError:
         return False
     return True
@@ -24,14 +26,14 @@ def sentinel_exists():
 class RedisLayerTests(ConformanceTestCase):
 
     channel_layer = RedisSentinelChannelLayer(
-        hosts=sentinel_hosts,
+        hosts=SENTINEL_HOSTS,
         expiry=1,
         group_expiry=2,
         capacity=5,
-        services=service_names
+        services=SERVICE_NAMES
     )
     expiry_delay = 1.1
-    receive_tries = len(service_names)
+    receive_tries = len(SERVICE_NAMES)
 
     # The functionality this test is for is not yet present (it's not required,
     # and will slow stuff down, so will be optional), but it's here for future reference.
@@ -115,15 +117,15 @@ class RedisLayerTests(ConformanceTestCase):
 class EncryptedRedisLayerTests(ConformanceTestCase):
 
     channel_layer = RedisSentinelChannelLayer(
-        hosts=sentinel_hosts,
+        hosts=SENTINEL_HOSTS,
         expiry=1,
         group_expiry=2,
         capacity=5,
         symmetric_encryption_keys=["test", "old"],
-        services=service_names,
+        services=SERVICE_NAMES,
     )
     expiry_delay = 1.1
-    receive_tries = len(service_names)
+    receive_tries = len(SERVICE_NAMES)
 
 
 # Test that the backend can auto-discover masters from Sentinel
@@ -131,13 +133,13 @@ class EncryptedRedisLayerTests(ConformanceTestCase):
 class AutoDiscoverRedisLayerTests(ConformanceTestCase):
 
     channel_layer = RedisSentinelChannelLayer(
-        hosts=sentinel_hosts,
+        hosts=SENTINEL_HOSTS,
         expiry=1,
         group_expiry=2,
         capacity=5,
     )
     expiry_delay = 1.1
-    receive_tries = len(service_names)
+    receive_tries = len(SERVICE_NAMES)
 
 
 # Test that the backend can cache Sentinel master connections if given a refresh interval
@@ -145,12 +147,12 @@ class AutoDiscoverRedisLayerTests(ConformanceTestCase):
 class CachingRedisLayerTests(ConformanceTestCase):
 
     channel_layer = RedisSentinelChannelLayer(
-        hosts=sentinel_hosts,
+        hosts=SENTINEL_HOSTS,
         expiry=1,
         group_expiry=2,
         capacity=5,
-        services=service_names,
+        services=SERVICE_NAMES,
         sentinel_refresh_interval=60,
     )
     expiry_delay = 1.1
-    receive_tries = len(service_names)
+    receive_tries = len(SERVICE_NAMES)
