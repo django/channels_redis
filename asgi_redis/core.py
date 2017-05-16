@@ -364,37 +364,44 @@ class RedisChannelLayer(BaseChannelLayer):
         if indexes is None:
             defer.returnValue((None, None))
         # Get a message from one of our channels
-        for index, list_names in itertools.cycle(indexes.items()):
-            # Shuffle list_names to avoid the first ones starving others of workers
-            random.shuffle(list_names)
-            # Get a sync connection for conn details
-            sync_connection = self.connection(index)
-            twisted_connection = yield txredisapi.ConnectionPool(
-                host=sync_connection.connection_pool.connection_kwargs['host'],
-                port=sync_connection.connection_pool.connection_kwargs['port'],
-                dbid=sync_connection.connection_pool.connection_kwargs['db'],
-                password=sync_connection.connection_pool.connection_kwargs['password'],
-            )
-            try:
-                # Pop off any waiting message
-                result = yield twisted_connection.blpop(list_names, timeout=self.blpop_timeout)
-                if result:
-                    content = yield twisted_connection.get(result[1])
-                    # If the content key expired, keep going.
-                    if content is None:
-                        continue
-                    # Return the channel it's from and the message
-                    channel = result[0][len(self.prefix):]
-                    message = self.deserialize(content)
-                    # If there is a full channel name stored in the message, unpack it.
-                    if "__asgi_channel__" in message:
-                        channel = message['__asgi_channel__']
-                        del message['__asgi_channel__']
-                    defer.returnValue((channel, message))
-                else:
-                    defer.returnValue((None, None))
-            finally:
-                yield twisted_connection.disconnect()
+        while True:
+            got_expired_content = False
+            # Try each index:channels pair at least once or until a result is returned
+            for index, list_names in indexes.items():
+                # Shuffle list_names to avoid the first ones starving others of workers
+                random.shuffle(list_names)
+                # Get a sync connection for conn details
+                sync_connection = self.connection(index)
+                twisted_connection = yield txredisapi.ConnectionPool(
+                    host=sync_connection.connection_pool.connection_kwargs['host'],
+                    port=sync_connection.connection_pool.connection_kwargs['port'],
+                    dbid=sync_connection.connection_pool.connection_kwargs['db'],
+                    password=sync_connection.connection_pool.connection_kwargs['password'],
+                )
+                try:
+                    # Pop off any waiting message
+                    result = yield twisted_connection.blpop(list_names, timeout=self.blpop_timeout)
+                    if result:
+                        content = yield twisted_connection.get(result[1])
+                        # If the content key expired, keep going.
+                        if content is None:
+                            got_expired_content = True
+                            continue
+                        # Return the channel it's from and the message
+                        channel = result[0][len(self.prefix):]
+                        message = self.deserialize(content)
+                        # If there is a full channel name stored in the message, unpack it.
+                        if "__asgi_channel__" in message:
+                            channel = message['__asgi_channel__']
+                            del message['__asgi_channel__']
+                        defer.returnValue((channel, message))
+                finally:
+                    yield twisted_connection.disconnect()
+            # If we only got expired content, try again
+            if got_expired_content:
+                continue
+            else:
+                defer.returnValue((None, None))
 
     ### statistics extension ###
 
