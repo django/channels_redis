@@ -37,9 +37,6 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
     ):
         self.services = self._setup_services(services)
 
-        # Precalculate some values for ring selection
-        self.ring_size = len(self.services)
-
         self.hosts = self._setup_hosts(hosts)
 
         self._sentinel = self._generate_sentinel(
@@ -57,6 +54,9 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
             stats_prefix = stats_prefix,
             connection_kwargs = connection_kwargs,
         )
+
+        # Precalculate some values for ring selection
+        self.ring_size = len(self.services)
 
     def _setup_services(self, services):
         final_services = list()
