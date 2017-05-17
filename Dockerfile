@@ -8,6 +8,8 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
 
 RUN pip install -U pip && pip install tox
 
+ENV DOCKER_TEST_ENV true
+
 ADD . /src
 WORKDIR /src
 

@@ -13,6 +13,8 @@ from .constants import (
 
 
 def sentinel_exists():
+    if not SENTINEL_HOSTS:
+        return False
     sen = redis.sentinel.Sentinel(SENTINEL_HOSTS)
     try:
         sen.discover_master(SERVICE_NAMES[0])
