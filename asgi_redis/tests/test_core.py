@@ -10,9 +10,13 @@ from .constants import REDIS_HOSTS
 # Default conformance tests
 class RedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisChannelLayer(hosts=REDIS_HOSTS, expiry=1, group_expiry=2, capacity=5)
     expiry_delay = 1.1
     receive_tries = len(REDIS_HOSTS)
+
+    @classmethod
+    def setUpClass(cls):
+        super(RedisLayerTests, cls).setUpClass()
+        cls.channel_layer = RedisChannelLayer(hosts=REDIS_HOSTS, expiry=1, group_expiry=2, capacity=5)
 
     # The functionality this test is for is not yet present (it's not required,
     # and will slow stuff down, so will be optional), but it's here for future reference.
@@ -86,12 +90,16 @@ class RedisLayerTests(ConformanceTestCase):
 # Encrypted variant of conformance tests
 class EncryptedRedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisChannelLayer(
-        hosts=REDIS_HOSTS,
-        expiry=1,
-        group_expiry=2,
-        capacity=5,
-        symmetric_encryption_keys=["test", "old"],
-    )
     expiry_delay = 1.1
     receive_tries = len(REDIS_HOSTS)
+
+    @classmethod
+    def setUpClass(cls):
+        super(EncryptedRedisLayerTests, cls).setUpClass()
+        cls.channel_layer = RedisChannelLayer(
+            hosts=REDIS_HOSTS,
+            expiry=1,
+            group_expiry=2,
+            capacity=5,
+            symmetric_encryption_keys=["test", "old"],
+        )

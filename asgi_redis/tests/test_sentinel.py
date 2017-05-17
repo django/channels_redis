@@ -27,15 +27,19 @@ def sentinel_exists():
 @unittest.skipUnless(sentinel_exists(), "Redis sentinel not running")
 class RedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisSentinelChannelLayer(
-        hosts=SENTINEL_HOSTS,
-        expiry=1,
-        group_expiry=2,
-        capacity=5,
-        services=SERVICE_NAMES
-    )
     expiry_delay = 1.1
     receive_tries = len(SERVICE_NAMES)
+
+    @classmethod
+    def setUpClass(cls):
+        super(RedisLayerTests, cls).setUpClass()
+        cls.channel_layer = RedisSentinelChannelLayer(
+            hosts=SENTINEL_HOSTS,
+            expiry=1,
+            group_expiry=2,
+            capacity=5,
+            services=SERVICE_NAMES
+        )
 
     # The functionality this test is for is not yet present (it's not required,
     # and will slow stuff down, so will be optional), but it's here for future reference.
@@ -118,43 +122,55 @@ class RedisLayerTests(ConformanceTestCase):
 @unittest.skipUnless(sentinel_exists(), "Redis sentinel not running")
 class EncryptedRedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisSentinelChannelLayer(
-        hosts=SENTINEL_HOSTS,
-        expiry=1,
-        group_expiry=2,
-        capacity=5,
-        symmetric_encryption_keys=["test", "old"],
-        services=SERVICE_NAMES,
-    )
     expiry_delay = 1.1
     receive_tries = len(SERVICE_NAMES)
+
+    @classmethod
+    def setUpClass(cls):
+        super(EncryptedRedisLayerTests, cls).setUpClass()
+        cls.channel_layer = RedisSentinelChannelLayer(
+            hosts=SENTINEL_HOSTS,
+            expiry=1,
+            group_expiry=2,
+            capacity=5,
+            symmetric_encryption_keys=["test", "old"],
+            services=SERVICE_NAMES,
+        )
 
 
 # Test that the backend can auto-discover masters from Sentinel
 @unittest.skipUnless(sentinel_exists(), "Redis sentinel not running")
 class AutoDiscoverRedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisSentinelChannelLayer(
-        hosts=SENTINEL_HOSTS,
-        expiry=1,
-        group_expiry=2,
-        capacity=5,
-    )
     expiry_delay = 1.1
     receive_tries = len(SERVICE_NAMES)
+
+    @classmethod
+    def setUpClass(cls):
+        super(AutoDiscoverRedisLayerTests, cls).setUpClass()
+        cls.channel_layer = RedisSentinelChannelLayer(
+            hosts=SENTINEL_HOSTS,
+            expiry=1,
+            group_expiry=2,
+            capacity=5,
+        )
 
 
 # Test that the backend can cache Sentinel master connections if given a refresh interval
 @unittest.skipUnless(sentinel_exists(), "Redis sentinel not running")
 class CachingRedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisSentinelChannelLayer(
-        hosts=SENTINEL_HOSTS,
-        expiry=1,
-        group_expiry=2,
-        capacity=5,
-        services=SERVICE_NAMES,
-        sentinel_refresh_interval=60,
-    )
     expiry_delay = 1.1
     receive_tries = len(SERVICE_NAMES)
+
+    @classmethod
+    def setUpClass(cls):
+        super(CachingRedisLayerTests, cls).setUpClass()
+        cls.channel_layer = RedisSentinelChannelLayer(
+            hosts=SENTINEL_HOSTS,
+            expiry=1,
+            group_expiry=2,
+            capacity=5,
+            services=SERVICE_NAMES,
+            sentinel_refresh_interval=60,
+        )
