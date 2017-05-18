@@ -1,3 +1,18 @@
+1.4.0 (2017-05-18)
+------------------
+
+* Sharded mode support is now more robust with send/receive deterministically
+  moving around the shard ring rather than picking random connections. This
+  means there is no longer a slight chance of messages being missed when there
+  are not significantly more readers on a channel than shards. Tests have
+  also been updated so they run fully on sharded mode thanks to this.
+
+* Sentinel support has been considerably improved, with connection caching
+  (via sentinal_refresh_interval), and automatic service discovery.
+
+* The Twisted backend now picks up the Redis password if one is configured.
+
+
 1.3.0 (2017-04-07)
 ------------------
 

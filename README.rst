@@ -163,6 +163,7 @@ To use it, just use the ``asgi_redis.RedisLocalChannelLayer`` class in your
 configuration instead of ``RedisChannelLayer`` and make sure you have the
 ``asgi_ipc`` package installed; no other change is needed.
 
+
 Sentinel Mode
 -------------
 
@@ -173,7 +174,9 @@ data.
 Sentinel mode supports sharding, but does not support multiple Sentinel clusters. To
 run sharding of keys across multiple Redis clusters, use a single sentinel cluster,
 but have that sentinel cluster monitor multiple "services". Then in the configuration
-for the RedisSentinelChannelLayer, add a list of the service names.
+for the RedisSentinelChannelLayer, add a list of the service names. You can also
+leave the list of services blank, and the layer will pull all services that are
+configured on the sentinel master.
 
 Redis Sentinel mode does not support URL-style connection strings, just tuple-based ones.
 
@@ -194,6 +197,11 @@ Configuration for Sentinel mode looks like this:
 The "shard1", "shard2", etc entries correspond to the name of the service configured in  your
 redis `sentinel.conf` file. For example, if your `sentinel.conf` says ``sentinel monitor local 127.0.0.1 6379 1``
 then you would want to include "local" as a service in the `RedisSentinelChannelLayer` configuration.
+
+You may also pass a ``sentinel_refresh_interval`` value in the ``CONFIG``, which
+will enable caching of the Sentinel results for the specified number of seconds.
+This is recommended to reduce the need to query Sentinel every time; even a
+low value of 5 seconds will significantly reduce overhead.
 
 Dependencies
 ------------
