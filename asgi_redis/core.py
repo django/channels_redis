@@ -10,6 +10,7 @@ import six
 import string
 import time
 import uuid
+import itertools
 
 try:
     import txredisapi
@@ -71,6 +72,11 @@ class RedisChannelLayer(BaseChannelLayer):
         self._connection_list = self._generate_connections(
             redis_kwargs=connection_kwargs or {},
         )
+
+        # Normal channels choose a host index by cycling through the available hosts
+        self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
+        self._send_index_generator = itertools.cycle(range(len(self.hosts)))
+
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
         self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
@@ -153,7 +159,8 @@ class RedisChannelLayer(BaseChannelLayer):
             index = self.consistent_hash(channel)
             connection = self.connection(index)
         else:
-            connection = self.connection(None)
+            index = next(self._send_index_generator)
+            connection = self.connection(index)
         # Use the Lua function to do the set-and-push
         try:
             self.chansend(
@@ -191,34 +198,38 @@ class RedisChannelLayer(BaseChannelLayer):
             return None, None
         # Get a message from one of our channels
         while True:
-            # Select a random connection to use
-            index = random.choice(list(indexes.keys()))
-            list_names = indexes[index]
-            # Shuffle list_names to avoid the first ones starving others of workers
-            random.shuffle(list_names)
-            # Open a connection
-            connection = self.connection(index)
-            # Pop off any waiting message
-            if block:
-                try:
-                    result = connection.blpop(list_names, timeout=self.blpop_timeout)
-                except redis.exceptions.TimeoutError:
-                    continue
-            else:
-                result = self.lpopmany(keys=list_names, client=connection)
-            if result:
-                content = connection.get(result[1])
-                # If the content key expired, keep going.
-                if content is None:
-                    continue
-                # Return the channel it's from and the message
-                channel = result[0][len(self.prefix):].decode("utf8")
-                message = self.deserialize(content)
-                # If there is a full channel name stored in the message, unpack it.
-                if "__asgi_channel__" in message:
-                    channel = message['__asgi_channel__']
-                    del message['__asgi_channel__']
-                return channel, message
+            got_expired_content = False
+            # Try each index:channels pair at least once or until a result is returned
+            for index, list_names in indexes.items():
+                # Shuffle list_names to avoid the first ones starving others of workers
+                random.shuffle(list_names)
+                # Open a connection
+                connection = self.connection(index)
+                # Pop off any waiting message
+                if block:
+                    try:
+                        result = connection.blpop(list_names, timeout=self.blpop_timeout)
+                    except redis.exceptions.TimeoutError:
+                        continue
+                else:
+                    result = self.lpopmany(keys=list_names, client=connection)
+                if result:
+                    content = connection.get(result[1])
+                    if content is None:
+                        # If the content key expired, keep going.
+                        got_expired_content = True
+                        continue
+                    # Return the channel it's from and the message
+                    channel = result[0][len(self.prefix):].decode("utf8")
+                    message = self.deserialize(content)
+                    # If there is a full channel name stored in the message, unpack it.
+                    if "__asgi_channel__" in message:
+                        channel = message['__asgi_channel__']
+                        del message['__asgi_channel__']
+                    return channel, message
+            # If we only got expired content, try again
+            if block or got_expired_content:
+                continue
             else:
                 return None, None
 
@@ -238,14 +249,14 @@ class RedisChannelLayer(BaseChannelLayer):
         ), "One or more channel names invalid"
         # Work out what servers to listen on for the given channels
         indexes = {}
-        random_index = self.random_index()
+        index = next(self._receive_index_generator)
         for channel in channels:
             if "!" in channel or "?" in channel:
                 indexes.setdefault(self.consistent_hash(channel), []).append(
                     self.prefix + channel,
                 )
             else:
-                indexes.setdefault(random_index, []).append(
+                indexes.setdefault(index, []).append(
                     self.prefix + channel,
                 )
         return indexes
@@ -354,39 +365,43 @@ class RedisChannelLayer(BaseChannelLayer):
             defer.returnValue((None, None))
         # Get a message from one of our channels
         while True:
-            # Select a random connection to use
-            index = random.choice(list(indexes.keys()))
-            list_names = indexes[index]
-            # Shuffle list_names to avoid the first ones starving others of workers
-            random.shuffle(list_names)
-            # Get a sync connection for conn details
-            sync_connection = self.connection(index)
-            twisted_connection = yield txredisapi.ConnectionPool(
-                host=sync_connection.connection_pool.connection_kwargs['host'],
-                port=sync_connection.connection_pool.connection_kwargs['port'],
-                dbid=sync_connection.connection_pool.connection_kwargs['db'],
-                password=sync_connection.connection_pool.connection_kwargs['password'],
-            )
-            try:
-                # Pop off any waiting message
-                result = yield twisted_connection.blpop(list_names, timeout=self.blpop_timeout)
-                if result:
-                    content = yield twisted_connection.get(result[1])
-                    # If the content key expired, keep going.
-                    if content is None:
-                        continue
-                    # Return the channel it's from and the message
-                    channel = result[0][len(self.prefix):]
-                    message = self.deserialize(content)
-                    # If there is a full channel name stored in the message, unpack it.
-                    if "__asgi_channel__" in message:
-                        channel = message['__asgi_channel__']
-                        del message['__asgi_channel__']
-                    defer.returnValue((channel, message))
-                else:
-                    defer.returnValue((None, None))
-            finally:
-                yield twisted_connection.disconnect()
+            got_expired_content = False
+            # Try each index:channels pair at least once or until a result is returned
+            for index, list_names in indexes.items():
+                # Shuffle list_names to avoid the first ones starving others of workers
+                random.shuffle(list_names)
+                # Get a sync connection for conn details
+                sync_connection = self.connection(index)
+                twisted_connection = yield txredisapi.ConnectionPool(
+                    host=sync_connection.connection_pool.connection_kwargs['host'],
+                    port=sync_connection.connection_pool.connection_kwargs['port'],
+                    dbid=sync_connection.connection_pool.connection_kwargs['db'],
+                    password=sync_connection.connection_pool.connection_kwargs['password'],
+                )
+                try:
+                    # Pop off any waiting message
+                    result = yield twisted_connection.blpop(list_names, timeout=self.blpop_timeout)
+                    if result:
+                        content = yield twisted_connection.get(result[1])
+                        # If the content key expired, keep going.
+                        if content is None:
+                            got_expired_content = True
+                            continue
+                        # Return the channel it's from and the message
+                        channel = result[0][len(self.prefix):]
+                        message = self.deserialize(content)
+                        # If there is a full channel name stored in the message, unpack it.
+                        if "__asgi_channel__" in message:
+                            channel = message['__asgi_channel__']
+                            del message['__asgi_channel__']
+                        defer.returnValue((channel, message))
+                finally:
+                    yield twisted_connection.disconnect()
+            # If we only got expired content, try again
+            if got_expired_content:
+                continue
+            else:
+                defer.returnValue((None, None))
 
     ### statistics extension ###
 

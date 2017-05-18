@@ -10,6 +10,7 @@ except ImportError:
 
 
 from .test_core import RedisChannelLayer
+from .constants import REDIS_HOSTS
 
 
 class TwistedTests(twisted.trial.unittest.TestCase):
@@ -23,7 +24,7 @@ class TwistedTests(twisted.trial.unittest.TestCase):
 
     def setUp(self):
         super(TwistedTests, self).setUp()
-        self.channel_layer = RedisChannelLayer(expiry=1, group_expiry=2, capacity=5)
+        self.channel_layer = RedisChannelLayer(hosts=REDIS_HOSTS, expiry=1, group_expiry=2, capacity=5)
 
     @defer.inlineCallbacks
     def test_receive_twisted(self):

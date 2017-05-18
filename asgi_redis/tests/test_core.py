@@ -4,13 +4,19 @@ import unittest
 from asgi_redis import RedisChannelLayer
 from asgiref.conformance import ConformanceTestCase
 
+from .constants import REDIS_HOSTS
+
 
 # Default conformance tests
 class RedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisChannelLayer(expiry=1, group_expiry=2, capacity=5)
     expiry_delay = 1.1
-    capacity_limit = 5
+    receive_tries = len(REDIS_HOSTS)
+
+    @classmethod
+    def setUpClass(cls):
+        super(RedisLayerTests, cls).setUpClass()
+        cls.channel_layer = RedisChannelLayer(hosts=REDIS_HOSTS, expiry=1, group_expiry=2, capacity=5)
 
     # The functionality this test is for is not yet present (it's not required,
     # and will slow stuff down, so will be optional), but it's here for future reference.
@@ -26,7 +32,7 @@ class RedisLayerTests(ConformanceTestCase):
         time.sleep(1.2)
         # Send new message to group, ensure message never arrives
         self.channel_layer.send_group("tgme_group", {"value": "blue"})
-        channel, message = self.channel_layer.receive(["tgme_test"])
+        channel, message = self.receive(["tgme_test"])
         self.assertIs(channel, None)
         self.assertIs(message, None)
 
@@ -63,7 +69,11 @@ class RedisLayerTests(ConformanceTestCase):
             }
         )
 
-        for _ in range(3):
+    def test_channel_full_statistics(self):
+        if self.capacity_limit is None:
+            raise unittest.SkipTest("No test capacity specified")
+
+        for _ in range(self.capacity_limit):
             self.channel_layer.send("first_channel", {"pay": "load"})
 
         for _ in range(4):
@@ -71,33 +81,25 @@ class RedisLayerTests(ConformanceTestCase):
                 self.channel_layer.send("first_channel", {"pay": "load"})
 
         # check that channel full exception are counted as such, not towards messages
-        self.assertEqual(
-            self.channel_layer.global_statistics(),
-            {
-                'messages_count': 6,
-                'channel_full_count': 4,
-            }
-        )
+        self.assertEqual(self.channel_layer.global_statistics()["channel_full_count"], 4)
 
         self.assertEqual(
-            self.channel_layer.channel_statistics("first_channel"),
-            {
-                'messages_count': 5,
-                'messages_pending': 5,
-                'messages_max_age': 0,
-                'channel_full_count': 4,
-            }
-        )
+            self.channel_layer.channel_statistics("first_channel")["channel_full_count"], 4)
 
 
 # Encrypted variant of conformance tests
 class EncryptedRedisLayerTests(ConformanceTestCase):
 
-    channel_layer = RedisChannelLayer(
-        expiry=1,
-        group_expiry=2,
-        capacity=5,
-        symmetric_encryption_keys=["test", "old"],
-    )
     expiry_delay = 1.1
-    capacity_limit = 5
+    receive_tries = len(REDIS_HOSTS)
+
+    @classmethod
+    def setUpClass(cls):
+        super(EncryptedRedisLayerTests, cls).setUpClass()
+        cls.channel_layer = RedisChannelLayer(
+            hosts=REDIS_HOSTS,
+            expiry=1,
+            group_expiry=2,
+            capacity=5,
+            symmetric_encryption_keys=["test", "old"],
+        )
