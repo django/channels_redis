@@ -334,7 +334,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # TODO: More efficient implementation (lua script per shard?)
         for channel in self.group_channels(group):
             try:
-                self.send(channel, message)
+                self.send(channel, dict(**message))
             except self.ChannelFull:
                 pass
 
