@@ -36,6 +36,14 @@ class RedisLayerTests(ConformanceTestCase):
         self.assertIs(channel, None)
         self.assertIs(message, None)
 
+    def test_receive_infinite_loop(self):
+        # if it's stuck in an infinite loop this call will never 
+        # return. The test framework should then raise an error 
+        # after it's timeout
+        channel, message = self.channel_layer.receive(["infinite_loop_test"], block=True)
+        self.assertIs(channel, None)
+        self.assertIs(message, None)
+
     def test_statistics(self):
         self.channel_layer.send("first_channel", {"pay": "load"})
         self.channel_layer.send("first_channel", {"pay": "load"})
