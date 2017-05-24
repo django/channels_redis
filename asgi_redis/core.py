@@ -228,7 +228,7 @@ class RedisChannelLayer(BaseChannelLayer):
                         del message['__asgi_channel__']
                     return channel, message
             # If we only got expired content, try again
-            if block or got_expired_content:
+            if got_expired_content:
                 continue
             else:
                 return None, None
