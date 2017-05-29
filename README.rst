@@ -206,8 +206,8 @@ low value of 5 seconds will significantly reduce overhead.
 Dependencies
 ------------
 
-Redis >= 2.6 is required for `asgi_redis`. All Channels projects currently
-support Python 2.7, 3.4 and 3.5.
+Redis >= 2.6 is required for `asgi_redis`. It supports Python 2.7, 3.4,
+3.5 and 3.6.
 
 Contributing
 ------------
