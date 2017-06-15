@@ -36,6 +36,26 @@ class RedisLayerTests(ConformanceTestCase):
         self.assertIs(channel, None)
         self.assertIs(message, None)
 
+    def test_received_message_deletion(self):
+        """
+        Ensures that when a message is received, the key containing its
+        content is deleted as well (and not just left to EXPIRE to clean up)
+
+        Note that this does not correctly fail on a sharded test, as it just
+        runs key stats on one shard to verify. It will, however, always pass
+        if things are working.
+        """
+        # Send and receive on the channel first to make the channel key
+        self.channel_layer.send("test-deletion", {"first": True})
+        self.receive(["test-deletion"])
+        # Get the number of keys in the Redis database before we send
+        num_keys = self.channel_layer.connection(0).dbsize()
+        # Send and receive
+        self.channel_layer.send("test-deletion", {"big": False})
+        self.receive(["test-deletion"])
+        # Verify the database did not grow in size
+        self.assertEqual(num_keys, self.channel_layer.connection(0).dbsize())
+
     def test_statistics(self):
         self.channel_layer.send("first_channel", {"pay": "load"})
         self.channel_layer.send("first_channel", {"pay": "load"})

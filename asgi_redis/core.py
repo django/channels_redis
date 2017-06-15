@@ -215,6 +215,7 @@ class RedisChannelLayer(BaseChannelLayer):
                     result = self.lpopmany(keys=list_names, client=connection)
                 if result:
                     content = connection.get(result[1])
+                    connection.delete(result[1])
                     if content is None:
                         # If the content key expired, keep going.
                         got_expired_content = True
