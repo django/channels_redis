@@ -207,10 +207,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 connection = self.connection(index)
                 # Pop off any waiting message
                 if block:
-                    try:
-                        result = connection.blpop(list_names, timeout=self.blpop_timeout)
-                    except redis.exceptions.TimeoutError:
-                        continue
+                    result = connection.blpop(list_names, timeout=self.blpop_timeout)
                 else:
                     result = self.lpopmany(keys=list_names, client=connection)
                 if result:
@@ -229,7 +226,7 @@ class RedisChannelLayer(BaseChannelLayer):
                         del message['__asgi_channel__']
                     return channel, message
             # If we only got expired content, try again
-            if block or got_expired_content:
+            if got_expired_content:
                 continue
             else:
                 return None, None
