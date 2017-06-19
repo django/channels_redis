@@ -1,12 +1,16 @@
 from __future__ import unicode_literals
-from asgi_redis import RedisChannelLayer
+
+import hashlib
+import itertools
+import random
 import redis
 from redis.sentinel import Sentinel
 from redis.client import Script
-import random
+from redis._compat import b
 import six
 import time
-import itertools
+
+from asgi_redis import RedisChannelLayer
 
 random.seed()
 
@@ -79,6 +83,10 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         self.lpopmany = Script(None, self.lua_lpopmany)
         self.delprefix = Script(None, self.lua_delprefix)
         self.incrstatcounters = Script(None, self.lua_incrstatcounters)
+        self.chansend.sha = hashlib.sha1(b(self.chansend.script)).hexdigest()
+        self.lpopmany.sha = hashlib.sha1(b(self.lpopmany.script)).hexdigest()
+        self.delprefix.sha = hashlib.sha1(b(self.delprefix.script)).hexdigest()
+        self.incrstatcounters.sha = hashlib.sha1(b(self.incrstatcounters.script)).hexdigest()
 
     def _validate_service_names(self, services):
         if isinstance(services, six.string_types):

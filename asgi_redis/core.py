@@ -3,14 +3,15 @@ from __future__ import unicode_literals
 import base64
 import binascii
 import hashlib
+import itertools
 import msgpack
 import random
 import redis
+from redis._compat import b
 import six
 import string
 import time
 import uuid
-import itertools
 
 try:
     import txredisapi
@@ -107,6 +108,10 @@ class RedisChannelLayer(BaseChannelLayer):
         self.lpopmany = connection.register_script(self.lua_lpopmany)
         self.delprefix = connection.register_script(self.lua_delprefix)
         self.incrstatcounters = connection.register_script(self.lua_incrstatcounters)
+        self.chansend.sha = hashlib.sha1(b(self.chansend.script)).hexdigest()
+        self.lpopmany.sha = hashlib.sha1(b(self.lpopmany.script)).hexdigest()
+        self.delprefix.sha = hashlib.sha1(b(self.delprefix.script)).hexdigest()
+        self.incrstatcounters.sha = hashlib.sha1(b(self.incrstatcounters.script)).hexdigest()
 
     def _setup_encryption(self, symmetric_encryption_keys):
         # See if we can do encryption if they asked
