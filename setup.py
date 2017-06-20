@@ -1,19 +1,30 @@
-import os
-from setuptools import setup, find_packages
+from os.path import dirname, join
+
+from setuptools import find_packages, setup
 
 
 def get_version():
-    for line in open(os.path.join(os.path.dirname(__file__), 'asgi_redis', '__init__.py')):
+
+    for line in open(join(dirname(__file__), 'asgi_redis', '__init__.py')):
         if line.startswith('__version__'):
-            return line.split('=')[-1].strip().replace('"', '').replace("'", '')
+            version_str = line.split('=')[-1].strip()
+            version = version_str.replace('"', '').replace("'", '')
+            return version
+
 
 # We use the README as the long_description
-readme_path = os.path.join(os.path.dirname(__file__), "README.rst")
+readme = open(join(dirname(__file__), 'README.rst')).read()
 
 crypto_requires = ['cryptography>=1.3.0']
 twisted_requires = ['twisted>=17.1', 'txredisapi']
-tests_require = ['tox', 'asgi_ipc']
-
+test_requires = crypto_requires + [
+    'pytest>=3.0',
+    'pytest-django>=3.0',
+    'asgi_ipc',
+    'channels>=1.1.0',
+    'requests>=2.12',
+    'websocket_client>=0.40',
+]
 
 setup(
     name='asgi_redis',
@@ -22,10 +33,10 @@ setup(
     author='Django Software Foundation',
     author_email='foundation@djangoproject.com',
     description='Redis-backed ASGI channel layer implementation',
-    long_description=open(readme_path).read(),
+    long_description=readme,
     license='BSD',
     zip_safe=False,
-    packages=find_packages(),
+    packages=find_packages(exclude=['tests']),
     include_package_data=True,
     install_requires=[
         'six',
@@ -34,8 +45,8 @@ setup(
         'asgiref~=1.1.2',
     ],
     extras_require={
-        "cryptography": crypto_requires,
-        "twisted": twisted_requires,
-        "tests": crypto_requires + twisted_requires + tests_require,
-    }
+        'cryptography': crypto_requires,
+        'twisted': twisted_requires,
+        'tests': crypto_requires + twisted_requires + test_requires,
+    },
 )
