@@ -40,7 +40,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'six',
-        'redis>=2.10',
+        'redis~=2.10.6',
         'msgpack-python',
         'asgiref~=1.1.2',
     ],

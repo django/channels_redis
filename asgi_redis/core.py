@@ -7,7 +7,6 @@ import itertools
 import msgpack
 import random
 import redis
-from redis._compat import b
 import six
 import string
 import time
@@ -26,15 +25,7 @@ class UnsupportedRedis(Exception):
     pass
 
 
-class RedisChannelLayer(BaseChannelLayer):
-    """
-    Redis channel layer.
-
-    It routes all messages into remote Redis server.  Support for
-    sharding among different Redis installations and message
-    encryption are provided.  Both synchronous and asynchronous (via
-    Twisted) approaches are implemented.
-    """
+class BaseRedisChannelLayer(BaseChannelLayer):
 
     blpop_timeout = 5
     global_statistics_expiry = 86400
@@ -53,65 +44,26 @@ class RedisChannelLayer(BaseChannelLayer):
         stats_prefix="asgi-meta:",
         connection_kwargs=None,
     ):
-        super(RedisChannelLayer, self).__init__(
+        super(BaseRedisChannelLayer, self).__init__(
             expiry=expiry,
             group_expiry=group_expiry,
             capacity=capacity,
             channel_capacity=channel_capacity,
         )
-        self.hosts = self._setup_hosts(hosts)
 
-        self.prefix = prefix
-        assert isinstance(self.prefix, six.text_type), "Prefix must be unicode"
-        # Precalculate some values for ring selection
-        self.ring_size = len(self.hosts)
-        # Create connections ahead of time (they won't call out just yet, but
-        # we want to connection-pool them later)
+        assert isinstance(prefix, six.text_type), "Prefix must be unicode"
         socket_timeout = connection_kwargs and connection_kwargs.get("socket_timeout", None)
         if socket_timeout and socket_timeout < self.blpop_timeout:
             raise ValueError("The socket timeout must be at least %s seconds" % self.blpop_timeout)
-        self._connection_list = self._generate_connections(
-            redis_kwargs=connection_kwargs or {},
-        )
 
-        # Normal channels choose a host index by cycling through the available hosts
-        self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
-        self._send_index_generator = itertools.cycle(range(len(self.hosts)))
-
+        self.prefix = prefix
+        self.stats_prefix = stats_prefix
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
         self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
-        self._register_scripts()
         self._setup_encryption(symmetric_encryption_keys)
-        self.stats_prefix = stats_prefix
 
-    def _setup_hosts(self, hosts):
-        # Make sure they provided some hosts, or provide a default
-        final_hosts = list()
-        if not hosts:
-            hosts = [("localhost", 6379)]
-
-        if isinstance(hosts, six.string_types):
-            # user accidentally used one host string instead of providing a list of hosts
-            raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
-
-        for entry in hosts:
-            if isinstance(entry, six.string_types):
-                final_hosts.append(entry)
-            else:
-                final_hosts.append("redis://%s:%d/0" % (entry[0], entry[1]))
-        return final_hosts
-
-    def _register_scripts(self):
-        connection = self.connection(None)
-        self.chansend = connection.register_script(self.lua_chansend)
-        self.lpopmany = connection.register_script(self.lua_lpopmany)
-        self.delprefix = connection.register_script(self.lua_delprefix)
-        self.incrstatcounters = connection.register_script(self.lua_incrstatcounters)
-        self.chansend.sha = hashlib.sha1(b(self.chansend.script)).hexdigest()
-        self.lpopmany.sha = hashlib.sha1(b(self.lpopmany.script)).hexdigest()
-        self.delprefix.sha = hashlib.sha1(b(self.delprefix.script)).hexdigest()
-        self.incrstatcounters.sha = hashlib.sha1(b(self.incrstatcounters.script)).hexdigest()
+    ### Setup ###
 
     def _setup_encryption(self, symmetric_encryption_keys):
         # See if we can do encryption if they asked
@@ -127,11 +79,12 @@ class RedisChannelLayer(BaseChannelLayer):
         else:
             self.crypter = None
 
-    def _generate_connections(self, redis_kwargs):
-        return [
-            redis.Redis.from_url(host, **redis_kwargs)
-            for host in self.hosts
-        ]
+    def _register_scripts(self):
+        connection = self.connection(None)
+        self.chansend = connection.register_script(self.lua_chansend)
+        self.lpopmany = connection.register_script(self.lua_lpopmany)
+        self.delprefix = connection.register_script(self.lua_delprefix)
+        self.incrstatcounters = connection.register_script(self.lua_incrstatcounters)
 
     ### ASGI API ###
 
@@ -344,16 +297,6 @@ class RedisChannelLayer(BaseChannelLayer):
     def _group_key(self, group):
         return ("%s:group:%s" % (self.prefix, group)).encode("utf8")
 
-    ### Flush extension ###
-
-    def flush(self):
-        """
-        Deletes all messages and groups on all shards.
-        """
-        for connection in self._connection_list:
-            self.delprefix(keys=[], args=[self.prefix + "*"], client=connection)
-            self.delprefix(keys=[], args=[self.stats_prefix + "*"], client=connection)
-
     ### Twisted extension ###
 
     @defer.inlineCallbacks
@@ -413,20 +356,6 @@ class RedisChannelLayer(BaseChannelLayer):
     STAT_MESSAGES_MAX_AGE = 'messages_max_age'
     STAT_CHANNEL_FULL = 'channel_full_count'
 
-    def global_statistics(self):
-        """
-        Returns dictionary of statistics across all channels on all shards.
-        Return value is a dictionary with following fields:
-            * messages_count, the number of messages processed since server start
-            * channel_full_count, the number of times ChannelFull exception has been risen since server start
-
-        This implementation does not provide calculated per second values.
-        Due perfomance concerns, does not provide aggregated messages_pending and messages_max_age,
-        these are only avaliable per channel.
-
-        """
-        return self._count_global_stats(self._connection_list)
-
     def _count_global_stats(self, connection_list):
         statistics = {
             self.STAT_MESSAGES_COUNT: 0,
@@ -442,24 +371,6 @@ class RedisChannelLayer(BaseChannelLayer):
             statistics[self.STAT_CHANNEL_FULL] += int(channel_full_count or 0)
 
         return statistics
-
-    def channel_statistics(self, channel):
-        """
-        Returns dictionary of statistics for specified channel.
-        Return value is a dictionary with following fields:
-            * messages_count, the number of messages processed since server start
-            * messages_pending, the current number of messages waiting
-            * messages_max_age, how long the oldest message has been waiting, in seconds
-            * channel_full_count, the number of times ChannelFull exception has been risen since server start
-
-        This implementation does not provide calculated per second values
-        """
-        if "!" in channel or "?" in channel:
-            connections = [self.connection(self.consistent_hash(channel))]
-        else:
-            # if we don't know where it is, we have to check in all shards
-            connections = self._connection_list
-        return self._count_channel_stats(channel, connections)
 
     def _count_channel_stats(self, channel, connections):
         statistics = {
@@ -579,8 +490,89 @@ class RedisChannelLayer(BaseChannelLayer):
         ring_divisor = 4096 / float(self.ring_size)
         return int(bigval / ring_divisor)
 
-    def random_index(self):
-        return random.randint(0, len(self.hosts) - 1)
+    def make_fernet(self, key):
+        """
+        Given a single encryption key, returns a Fernet instance using it.
+        """
+        from cryptography.fernet import Fernet
+        if isinstance(key, six.text_type):
+            key = key.encode("utf8")
+        formatted_key = base64.urlsafe_b64encode(hashlib.sha256(key).digest())
+        return Fernet(formatted_key)
+
+
+class RedisChannelLayer(BaseRedisChannelLayer):
+    """
+    Redis channel layer.
+
+    It routes all messages into remote Redis server.  Support for
+    sharding among different Redis installations and message
+    encryption are provided.  Both synchronous and asynchronous (via
+    Twisted) approaches are implemented.
+    """
+
+    def __init__(
+        self,
+        expiry=60,
+        hosts=None,
+        prefix="asgi:",
+        group_expiry=86400,
+        capacity=100,
+        channel_capacity=None,
+        symmetric_encryption_keys=None,
+        stats_prefix="asgi-meta:",
+        connection_kwargs=None,
+    ):
+        super(RedisChannelLayer, self).__init__(
+            expiry=expiry,
+            hosts=hosts,
+            prefix=prefix,
+            group_expiry=group_expiry,
+            capacity=capacity,
+            channel_capacity=channel_capacity,
+            symmetric_encryption_keys=symmetric_encryption_keys,
+            stats_prefix=stats_prefix,
+            connection_kwargs=connection_kwargs,
+        )
+        self.hosts = self._setup_hosts(hosts)
+        # Precalculate some values for ring selection
+        self.ring_size = len(self.hosts)
+        # Create connections ahead of time (they won't call out just yet, but
+        # we want to connection-pool them later)
+        self._connection_list = self._generate_connections(
+            self.hosts,
+            redis_kwargs=connection_kwargs or {},
+        )
+        self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
+        self._send_index_generator = itertools.cycle(range(len(self.hosts)))
+        self._register_scripts()
+
+    ### Setup ###
+
+    def _setup_hosts(self, hosts):
+        # Make sure they provided some hosts, or provide a default
+        final_hosts = list()
+        if not hosts:
+            hosts = [("localhost", 6379)]
+
+        if isinstance(hosts, six.string_types):
+            # user accidentally used one host string instead of providing a list of hosts
+            raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
+
+        for entry in hosts:
+            if isinstance(entry, six.string_types):
+                final_hosts.append(entry)
+            else:
+                final_hosts.append("redis://%s:%d/0" % (entry[0], entry[1]))
+        return final_hosts
+
+    def _generate_connections(self, hosts, redis_kwargs):
+        return [
+            redis.Redis.from_url(host, **redis_kwargs)
+            for host in hosts
+        ]
+
+    ### Connection handling ####
 
     def connection(self, index):
         """
@@ -597,15 +589,52 @@ class RedisChannelLayer(BaseChannelLayer):
             raise ValueError("There are only %s hosts - you asked for %s!" % (self.ring_size, index))
         return self._connection_list[index]
 
-    def make_fernet(self, key):
+    def random_index(self):
+        return random.randint(0, len(self.hosts) - 1)
+
+    ### Flush extension ###
+
+    def flush(self):
         """
-        Given a single encryption key, returns a Fernet instance using it.
+        Deletes all messages and groups on all shards.
         """
-        from cryptography.fernet import Fernet
-        if isinstance(key, six.text_type):
-            key = key.encode("utf8")
-        formatted_key = base64.urlsafe_b64encode(hashlib.sha256(key).digest())
-        return Fernet(formatted_key)
+        for connection in self._connection_list:
+            self.delprefix(keys=[], args=[self.prefix + "*"], client=connection)
+            self.delprefix(keys=[], args=[self.stats_prefix + "*"], client=connection)
+
+    ### Statistics extension ###
+
+    def global_statistics(self):
+        """
+        Returns dictionary of statistics across all channels on all shards.
+        Return value is a dictionary with following fields:
+            * messages_count, the number of messages processed since server start
+            * channel_full_count, the number of times ChannelFull exception has been risen since server start
+
+        This implementation does not provide calculated per second values.
+        Due perfomance concerns, does not provide aggregated messages_pending and messages_max_age,
+        these are only avaliable per channel.
+
+        """
+        return self._count_global_stats(self._connection_list)
+
+    def channel_statistics(self, channel):
+        """
+        Returns dictionary of statistics for specified channel.
+        Return value is a dictionary with following fields:
+            * messages_count, the number of messages processed since server start
+            * messages_pending, the current number of messages waiting
+            * messages_max_age, how long the oldest message has been waiting, in seconds
+            * channel_full_count, the number of times ChannelFull exception has been risen since server start
+
+        This implementation does not provide calculated per second values
+        """
+        if "!" in channel or "?" in channel:
+            connections = [self.connection(self.consistent_hash(channel))]
+        else:
+            # if we don't know where it is, we have to check in all shards
+            connections = self._connection_list
+        return self._count_channel_stats(channel, connections)
 
     def __str__(self):
         return "%s(hosts=%s)" % (self.__class__.__name__, self.hosts)
