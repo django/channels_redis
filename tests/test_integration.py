@@ -1,6 +1,8 @@
+import os
 import subprocess
 import sys
 import time
+import unittest
 
 import benchmark
 import requests
@@ -8,6 +10,7 @@ import websocket
 from channels.test import ChannelLiveServerTestCase
 
 
+@unittest.skipIf(os.environ.get("DOCKER_TEST_ENV"), "Skipping integration tests in Docker")
 class IntegrationTest(ChannelLiveServerTestCase):
 
     def test_http_request(self):
@@ -43,6 +46,7 @@ class IntegrationTest(ChannelLiveServerTestCase):
         assert proc.returncode == 0
 
 
+@unittest.skipIf(os.environ.get("DOCKER_TEST_ENV"), "Skipping integration tests in Docker")
 class ConcurrentIntegrationTest(IntegrationTest):
 
     worker_threads = 4

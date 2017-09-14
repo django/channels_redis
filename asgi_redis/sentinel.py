@@ -1,21 +1,18 @@
 from __future__ import unicode_literals
 
-import hashlib
 import itertools
 import random
 import redis
 from redis.sentinel import Sentinel
-from redis.client import Script
-from redis._compat import b
 import six
 import time
 
-from asgi_redis import RedisChannelLayer
+from asgi_redis.core import BaseRedisChannelLayer
 
 random.seed()
 
 
-class RedisSentinelChannelLayer(RedisChannelLayer):
+class RedisSentinelChannelLayer(BaseRedisChannelLayer):
     """
     Variant of the Redis channel layer that supports the Redis Sentinel HA protocol.
 
@@ -63,9 +60,8 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         self._last_sentinel_refresh = 0
         self._master_connections = {}
 
-        self._sentinel = self._generate_sentinel(
-            redis_kwargs=connection_kwargs or {},
-        )
+        connection_kwargs = connection_kwargs or {}
+        self._sentinel = Sentinel(self._setup_hosts(hosts), **connection_kwargs)
         if services:
             self._validate_service_names(services)
             self.services = services
@@ -76,17 +72,25 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
         self.ring_size = len(self.services)
         self._receive_index_generator = itertools.cycle(range(len(self.services)))
         self._send_index_generator = itertools.cycle(range(len(self.services)))
+        self._register_scripts()
 
-    def _register_scripts(self):
-        # Scripts are registered without a client, so they must always be called with a client or they will fail
-        self.chansend = Script(None, self.lua_chansend)
-        self.lpopmany = Script(None, self.lua_lpopmany)
-        self.delprefix = Script(None, self.lua_delprefix)
-        self.incrstatcounters = Script(None, self.lua_incrstatcounters)
-        self.chansend.sha = hashlib.sha1(b(self.chansend.script)).hexdigest()
-        self.lpopmany.sha = hashlib.sha1(b(self.lpopmany.script)).hexdigest()
-        self.delprefix.sha = hashlib.sha1(b(self.delprefix.script)).hexdigest()
-        self.incrstatcounters.sha = hashlib.sha1(b(self.incrstatcounters.script)).hexdigest()
+    ### Setup ###
+
+    def _setup_hosts(self, hosts):
+        # Override to only accept tuples, since the redis.sentinel.Sentinel does not accept URLs
+        if not hosts:
+            hosts = [("localhost", 26379)]
+        final_hosts = list()
+        if isinstance(hosts, six.string_types):
+            # user accidentally used one host string instead of providing a list of hosts
+            raise ValueError("ASGI Redis hosts must be specified as an iterable list of hosts.")
+
+        for entry in hosts:
+            if isinstance(entry, six.string_types):
+                raise ValueError("Sentinel Redis host entries must be specified as tuples, not strings.")
+            else:
+                final_hosts.append(entry)
+        return final_hosts
 
     def _validate_service_names(self, services):
         if isinstance(services, six.string_types):
@@ -116,29 +120,7 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
                 "Could not get master info from sentinel\n{}.".format("\n".join(connection_errors)))
         return list(master_info.keys())
 
-    def _setup_hosts(self, hosts):
-        # Override to only accept tuples, since the redis.sentinel.Sentinel does not accept URLs
-        if not hosts:
-            hosts = [("localhost", 26379)]
-        final_hosts = list()
-        if isinstance(hosts, six.string_types):
-            # user accidentally used one host string instead of providing a list of hosts
-            raise ValueError("ASGI Redis hosts must be specified as an iterable list of hosts.")
-
-        for entry in hosts:
-            if isinstance(entry, six.string_types):
-                raise ValueError("Sentinel Redis host entries must be specified as tuples, not strings.")
-            else:
-                final_hosts.append(entry)
-        return final_hosts
-
-    def _generate_sentinel(self, redis_kwargs):
-        # pass redis_kwargs through to the sentinel object to be used for each connection to the redis servers.
-        return Sentinel(self.hosts, **redis_kwargs)
-
-    def _generate_connections(self, redis_kwargs):
-        # override this for purposes of super's init.
-        return list()
+    ### Connection handling ####
 
     def _master_for(self, service_name):
         if self.sentinel_refresh_interval <= 0:
@@ -151,15 +133,6 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
     def _populate_masters(self):
         self._master_connections = {service: self._sentinel.master_for(service) for service in self.services}
         self._last_sentinel_refresh = time.time()
-
-    def flush(self):
-        """
-        Deletes all messages and groups on all shards.
-        """
-        for service_name in self.services:
-            connection = self._master_for(service_name)
-            self.delprefix(keys=[], args=[self.prefix + "*"], client=connection)
-            self.delprefix(keys=[], args=[self.stats_prefix + "*"], client=connection)
 
     def connection(self, index):
         # return the master for the given index
@@ -175,6 +148,19 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
     def random_index(self):
         return random.randint(0, len(self.services) - 1)
 
+    ### Flush extension ###
+
+    def flush(self):
+        """
+        Deletes all messages and groups on all shards.
+        """
+        for service_name in self.services:
+            connection = self._master_for(service_name)
+            self.delprefix(keys=[], args=[self.prefix + "*"], client=connection)
+            self.delprefix(keys=[], args=[self.stats_prefix + "*"], client=connection)
+
+    ### Statistics extension ###
+
     def global_statistics(self):
         connection_list = [self._master_for(service_name) for service_name in self.services]
         return self._count_global_stats(connection_list)
@@ -187,3 +173,6 @@ class RedisSentinelChannelLayer(RedisChannelLayer):
             connections = [self._master_for(service_name) for service_name in self.services]
 
         return self._count_channel_stats(channel, connections)
+
+    def __str__(self):
+        return "%s(services==%s)" % (self.__class__.__name__, self.services)
