@@ -392,7 +392,7 @@ class BaseRedisChannelLayer(BaseChannelLayer):
             statistics[self.STAT_MESSAGES_PENDING] += connection.llen(channel_key)
             oldest_message = connection.lindex(channel_key, 0)
             if oldest_message:
-                messages_age = self.expiry - connection.ttl(oldest_message)
+                messages_age = self.expiry - (connection.ttl(oldest_message) or 0)
                 statistics[self.STAT_MESSAGES_MAX_AGE] = max(statistics[self.STAT_MESSAGES_MAX_AGE], messages_age)
         return statistics
 
