@@ -1,25 +1,17 @@
 from __future__ import unicode_literals
 
+import aioredis
+import asyncio
 import base64
 import binascii
 import hashlib
 import itertools
 import msgpack
 import random
-import redis
-from redis._compat import b
-import six
 import string
-import time
-import uuid
 
-try:
-    import txredisapi
-except ImportError:
-    pass
-
-from asgiref.base_layer import BaseChannelLayer
-from .twisted_utils import defer
+from channels.layers import BaseChannelLayer
+from channels.exceptions import ChannelFull
 
 
 class UnsupportedRedis(Exception):
@@ -30,93 +22,74 @@ class RedisChannelLayer(BaseChannelLayer):
     """
     Redis channel layer.
 
-    It routes all messages into remote Redis server.  Support for
+    It routes all messages into remote Redis server. Support for
     sharding among different Redis installations and message
-    encryption are provided.  Both synchronous and asynchronous (via
-    Twisted) approaches are implemented.
+    encryption are provided.
     """
 
     blpop_timeout = 5
-    global_statistics_expiry = 86400
-    channel_statistics_expiry = 3600
-    global_stats_key = '#global#'  # needs to be invalid as a channel name
+    local_poll_interval = 0.01
 
     def __init__(
         self,
-        expiry=60,
         hosts=None,
         prefix="asgi:",
+        expiry=60,
         group_expiry=86400,
         capacity=100,
         channel_capacity=None,
         symmetric_encryption_keys=None,
-        stats_prefix="asgi-meta:",
-        connection_kwargs=None,
     ):
-        super(RedisChannelLayer, self).__init__(
-            expiry=expiry,
-            group_expiry=group_expiry,
-            capacity=capacity,
-            channel_capacity=channel_capacity,
-        )
-        self.hosts = self._setup_hosts(hosts)
-
+        # Store basic information
+        self.expiry = expiry
+        self.group_expiry = group_expiry
+        self.capacity = capacity
+        self.channel_capacity = channel_capacity or {}
         self.prefix = prefix
-        assert isinstance(self.prefix, six.text_type), "Prefix must be unicode"
-        # Precalculate some values for ring selection
+        self.pools = {}
+        assert isinstance(self.prefix, str), "Prefix must be unicode"
+        # Configure the host objects
+        self.hosts = self.decode_hosts(hosts)
         self.ring_size = len(self.hosts)
-        # Create connections ahead of time (they won't call out just yet, but
-        # we want to connection-pool them later)
-        socket_timeout = connection_kwargs and connection_kwargs.get("socket_timeout", None)
-        if socket_timeout and socket_timeout < self.blpop_timeout:
-            raise ValueError("The socket timeout must be at least %s seconds" % self.blpop_timeout)
-        self._connection_list = self._generate_connections(
-            redis_kwargs=connection_kwargs or {},
-        )
-
         # Normal channels choose a host index by cycling through the available hosts
         self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
-
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
         self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
-        self._register_scripts()
+        # Set up any encryption objects
         self._setup_encryption(symmetric_encryption_keys)
-        self.stats_prefix = stats_prefix
+        # Buffered messages by process-local channel name
+        self.receive_buffer = {}
+        # Coroutines currently receiving the process-local channel.
+        self.receive_tasks = {}
 
-    def _setup_hosts(self, hosts):
-        # Make sure they provided some hosts, or provide a default
-        final_hosts = list()
+    def decode_hosts(self, hosts):
+        """
+        Takes the value of the "hosts" argument passed to the class and returns
+        a list of kwargs to use for the Redis connection constructor.
+        """
+        # If no hosts were provided, return a default value
         if not hosts:
-            hosts = [("localhost", 6379)]
-
-        if isinstance(hosts, six.string_types):
-            # user accidentally used one host string instead of providing a list of hosts
-            raise ValueError('ASGI Redis hosts must be specified as an iterable list of hosts.')
-
+            return {"address": ("localhost", 6379)}
+        # If they provided just a string, scold them.
+        if isinstance(hosts, (str, bytes)):
+            raise ValueError("You must pass a list of Redis hosts, even if there is only one.")
+        # Decode each hosts entry into a kwargs dict
+        result = []
         for entry in hosts:
-            if isinstance(entry, six.string_types):
-                final_hosts.append(entry)
+            if isinstance(entry, str):
+                raise NotImplementedError("String hosts not implemented yet")
             else:
-                final_hosts.append("redis://%s:%d/0" % (entry[0], entry[1]))
-        return final_hosts
-
-    def _register_scripts(self):
-        connection = self.connection(None)
-        self.chansend = connection.register_script(self.lua_chansend)
-        self.lpopmany = connection.register_script(self.lua_lpopmany)
-        self.delprefix = connection.register_script(self.lua_delprefix)
-        self.incrstatcounters = connection.register_script(self.lua_incrstatcounters)
-        self.chansend.sha = hashlib.sha1(b(self.chansend.script)).hexdigest()
-        self.lpopmany.sha = hashlib.sha1(b(self.lpopmany.script)).hexdigest()
-        self.delprefix.sha = hashlib.sha1(b(self.delprefix.script)).hexdigest()
-        self.incrstatcounters.sha = hashlib.sha1(b(self.incrstatcounters.script)).hexdigest()
+                result.append({
+                    "address": (entry[0], entry[1]),
+                })
+        return result
 
     def _setup_encryption(self, symmetric_encryption_keys):
         # See if we can do encryption if they asked
         if symmetric_encryption_keys:
-            if isinstance(symmetric_encryption_keys, six.string_types):
+            if isinstance(symmetric_encryption_keys, (str, bytes)):
                 raise ValueError("symmetric_encryption_keys must be a list of possible keys")
             try:
                 from cryptography.fernet import MultiFernet
@@ -127,23 +100,14 @@ class RedisChannelLayer(BaseChannelLayer):
         else:
             self.crypter = None
 
-    def _generate_connections(self, redis_kwargs):
-        return [
-            redis.Redis.from_url(host, **redis_kwargs)
-            for host in self.hosts
-        ]
+    ### Channel layer API ###
 
-    ### ASGI API ###
+    extensions = ["groups", "flush"]
 
-    extensions = ["groups", "flush", "statistics"]
-    try:
-        import txredisapi
-    except ImportError:
-        pass
-    else:
-        extensions.append("twisted")
-
-    def send(self, channel, message):
+    async def send(self, channel, message):
+        """
+        Send a message onto a (general or specific) channel.
+        """
         # Typecheck
         assert isinstance(message, dict), "message is not a dict"
         assert self.valid_channel_name(channel), "Channel name not valid"
@@ -155,194 +119,119 @@ class RedisChannelLayer(BaseChannelLayer):
             message['__asgi_channel__'] = channel
             channel = self.non_local_name(channel)
         # Write out message into expiring key (avoids big items in list)
-        # TODO: Use extended set, drop support for older redis?
-        message_key = self.prefix + uuid.uuid4().hex
         channel_key = self.prefix + channel
-        # Pick a connection to the right server - consistent for response
-        # channels, random for normal channels
-        if "!" in channel or "?" in channel:
+        # Pick a connection to the right server - consistent for specific
+        # channels, random for general channels
+        if "!" in channel:
             index = self.consistent_hash(channel)
-            connection = self.connection(index)
+            pool = await self.pool(index)
         else:
             index = next(self._send_index_generator)
-            connection = self.connection(index)
-        # Use the Lua function to do the set-and-push
-        try:
-            self.chansend(
-                keys=[message_key, channel_key],
-                args=[self.serialize(message), self.expiry, self.get_capacity(channel)],
-                client=connection,
-            )
-            self._incr_statistics_counter(
-                stat_name=self.STAT_MESSAGES_COUNT,
-                channel=channel,
-                connection=connection,
-            )
-        except redis.exceptions.ResponseError as e:
-            # The Lua script handles capacity checking and sends the "full" error back
-            if e.args[0] == "full":
-                self._incr_statistics_counter(
-                    stat_name=self.STAT_CHANNEL_FULL,
-                    channel=channel,
-                    connection=connection,
-                )
-                raise self.ChannelFull
-            elif "unknown command" in e.args[0]:
-                raise UnsupportedRedis(
-                    "Redis returned an error (%s). Please ensure you're running a "
-                    " version of redis that is supported by asgi_redis." % e.args[0])
-            else:
-                # Let any other exception bubble up
-                raise
+            pool = await self.pool(index)
+        async with pool.get() as connection:
+            # Check the length of the list before send
+            # This can allow the list to leak slightly over capacity, but that's fine.
+            if await connection.llen(channel_key) > self.get_capacity(channel):
+                raise ChannelFull()
+            # Push onto the list then set it to expire in case it's not consumed
+            await connection.rpush(channel_key, self.serialize(message))
+            await connection.expire(channel_key, int(self.expiry))
 
-    def receive(self, channels, block=False):
-        # List name get
-        indexes = self._receive_list_names(channels)
-        # Short circuit if no channels
-        if indexes is None:
-            return None, None
-        # Get a message from one of our channels
+    async def receive(self, channel):
+        """
+        Receive the first message that arrives on the channel.
+        If more than one coroutine waits on the same channel, the first waiter
+        will be given the message when it arrives.
+        """
+        # Make sure the channel name is valid then get the non-local part
+        # and thus its index
+        assert self.valid_channel_name(channel)
+        if "!" in channel:
+            real_channel = self.non_local_name(channel)
+            assert real_channel.endswith(self.client_prefix + "!"), "Wrong client prefix"
+            # Make sure a receive task is running
+            task = self.receive_tasks.get(real_channel, None)
+            if task is not None and task.done():
+                task = None
+            if task is None:
+                self.receive_tasks[real_channel] = asyncio.ensure_future(
+                    self.receive_loop(real_channel),
+                )
+            # Wait on the receive buffer's contents
+            return await self.receive_buffer_lpop(channel)
+        else:
+            # Do a plain direct receive
+            return (await self.receive_single(channel))[1]
+
+    async def receive_loop(self, channel):
+        """
+        Continuous-receiving loop that fetches results into the receive buffer.
+        """
+        assert "!" in channel, "receive_loop called on non-process-local channel"
         while True:
-            got_expired_content = False
-            # Try each index:channels pair at least once or until a result is returned
-            for index, list_names in indexes.items():
-                # Shuffle list_names to avoid the first ones starving others of workers
-                random.shuffle(list_names)
-                # Open a connection
-                connection = self.connection(index)
-                # Pop off any waiting message
-                if block:
-                    result = connection.blpop(list_names, timeout=self.blpop_timeout)
+            real_channel, message = await self.receive_single(channel)
+            self.receive_buffer.setdefault(real_channel, []).append(message)
+
+    async def receive_single(self, channel):
+        """
+        Receives a single message off of the channel and returns it.
+        """
+        # Check channel name
+        assert self.valid_channel_name(channel, receive=True), "Channel name invalid"
+        # Work out the connection to use
+        if "!" in channel:
+            assert channel.endswith("!")
+            index = self.consistent_hash(channel)
+        else:
+            index = next(self._receive_index_generator)
+        # Get that connection and receive off of it
+        async with (await self.pool(index)).get() as connection:
+            channel_key = self.prefix + channel
+            content = None
+            while content is None:
+                content = await connection.blpop(channel_key, timeout=self.blpop_timeout)
+            # Message decode
+            message = self.deserialize(content[1])
+            # TODO: message expiry?
+            # If there is a full channel name stored in the message, unpack it.
+            if "__asgi_channel__" in message:
+                channel = message['__asgi_channel__']
+                del message['__asgi_channel__']
+            return channel, message
+
+    async def receive_buffer_lpop(self, channel):
+        """
+        Atomic, async method that returns the left-hand item in a receive buffer.
+        """
+        # TODO: Use locks or something, not a poll
+        while True:
+            if self.receive_buffer.get(channel, None):
+                message = self.receive_buffer[channel][0]
+                if len(self.receive_buffer[channel]) == 1:
+                    del self.receive_buffer[channel]
                 else:
-                    result = self.lpopmany(keys=list_names, client=connection)
-                if result:
-                    content = connection.get(result[1])
-                    connection.delete(result[1])
-                    if content is None:
-                        # If the content key expired, keep going.
-                        got_expired_content = True
-                        continue
-                    # Return the channel it's from and the message
-                    channel = result[0][len(self.prefix):].decode("utf8")
-                    message = self.deserialize(content)
-                    # If there is a full channel name stored in the message, unpack it.
-                    if "__asgi_channel__" in message:
-                        channel = message['__asgi_channel__']
-                        del message['__asgi_channel__']
-                    return channel, message
-            # If we only got expired content, try again
-            if got_expired_content:
-                continue
+                    self.receive_buffer[channel] = self.receive_buffer[channel][1:]
+                return message
             else:
-                return None, None
+                # See if we need to propagate a dead receiver exception
+                real_channel = self.non_local_name(channel)
+                task = self.receive_tasks.get(real_channel, None)
+                if task is not None and task.done():
+                    task.result()
+                # Sleep poll
+                await asyncio.sleep(self.local_poll_interval)
 
-    def _receive_list_names(self, channels):
+    def new_channel(self, prefix="specific."):
         """
-        Inner logic of receive; takes channels, groups by shard, and
-        returns {connection_index: list_names ...} if a query is needed or
-        None for a vacuously empty response.
+        Returns a new channel name that can be used by something in our
+        process as a specific channel.
         """
-        # Short circuit if no channels
-        if not channels:
-            return None
-        # Check channel names are valid
-        channels = list(channels)
-        assert all(
-            self.valid_channel_name(channel, receive=True) for channel in channels
-        ), "One or more channel names invalid"
-        # Work out what servers to listen on for the given channels
-        indexes = {}
-        index = next(self._receive_index_generator)
-        for channel in channels:
-            if "!" in channel or "?" in channel:
-                indexes.setdefault(self.consistent_hash(channel), []).append(
-                    self.prefix + channel,
-                )
-            else:
-                indexes.setdefault(index, []).append(
-                    self.prefix + channel,
-                )
-        return indexes
-
-    def new_channel(self, pattern):
-        assert isinstance(pattern, six.text_type)
-        # Keep making channel names till one isn't present.
-        while True:
-            random_string = "".join(random.choice(string.ascii_letters) for i in range(12))
-            assert pattern.endswith("?")
-            new_name = pattern + random_string
-            # Get right connection
-            index = self.consistent_hash(new_name)
-            connection = self.connection(index)
-            # Check to see if it's in the connected Redis.
-            # This fails to stop collisions for sharding where the channel is
-            # non-single-listener, but that seems very unlikely.
-            key = self.prefix + new_name
-            if not connection.exists(key):
-                return new_name
-
-    ### ASGI Group extension ###
-
-    def group_add(self, group, channel):
-        """
-        Adds the channel to the named group for at least 'expiry'
-        seconds (expiry defaults to message expiry if not provided).
-        """
-        assert self.valid_group_name(group), "Group name not valid"
-        assert self.valid_channel_name(channel), "Channel name not valid"
-        group_key = self._group_key(group)
-        connection = self.connection(self.consistent_hash(group))
-        # Add to group sorted set with creation time as timestamp
-        connection.zadd(
-            group_key,
-            **{channel: time.time()}
+        # TODO: Guarantee uniqueness better?
+        return "%s.%s!%s" % (
+            prefix,
+            self.client_prefix,
+            "".join(random.choice(string.ascii_letters) for i in range(12)),
         )
-        # Set both expiration to be group_expiry, since everything in
-        # it at this point is guaranteed to expire before that
-        connection.expire(group_key, self.group_expiry)
-
-    def group_discard(self, group, channel):
-        """
-        Removes the channel from the named group if it is in the group;
-        does nothing otherwise (does not error)
-        """
-        assert self.valid_group_name(group), "Group name not valid"
-        assert self.valid_channel_name(channel), "Channel name not valid"
-        key = self._group_key(group)
-        self.connection(self.consistent_hash(group)).zrem(
-            key,
-            channel,
-        )
-
-    def group_channels(self, group):
-        """
-        Returns all channels in the group as an iterable.
-        """
-        key = self._group_key(group)
-        connection = self.connection(self.consistent_hash(group))
-        # Discard old channels based on group_expiry
-        connection.zremrangebyscore(key, 0, int(time.time()) - self.group_expiry)
-        # Return current lot
-        return [x.decode("utf8") for x in connection.zrange(
-            key,
-            0,
-            -1,
-        )]
-
-    def send_group(self, group, message):
-        """
-        Sends a message to the entire group.
-        """
-        assert self.valid_group_name(group), "Group name not valid"
-        # TODO: More efficient implementation (lua script per shard?)
-        for channel in self.group_channels(group):
-            try:
-                self.send(channel, message)
-            except self.ChannelFull:
-                pass
-
-    def _group_key(self, group):
-        return ("%s:group:%s" % (self.prefix, group)).encode("utf8")
 
     ### Flush extension ###
 
@@ -353,156 +242,6 @@ class RedisChannelLayer(BaseChannelLayer):
         for connection in self._connection_list:
             self.delprefix(keys=[], args=[self.prefix + "*"], client=connection)
             self.delprefix(keys=[], args=[self.stats_prefix + "*"], client=connection)
-
-    ### Twisted extension ###
-
-    @defer.inlineCallbacks
-    def receive_twisted(self, channels):
-        """
-        Twisted-native implementation of receive.
-        """
-        # List name get
-        indexes = self._receive_list_names(channels)
-        # Short circuit if no channels
-        if indexes is None:
-            defer.returnValue((None, None))
-        # Get a message from one of our channels
-        while True:
-            got_expired_content = False
-            # Try each index:channels pair at least once or until a result is returned
-            for index, list_names in indexes.items():
-                # Shuffle list_names to avoid the first ones starving others of workers
-                random.shuffle(list_names)
-                # Get a sync connection for conn details
-                sync_connection = self.connection(index)
-                twisted_connection = yield txredisapi.ConnectionPool(
-                    host=sync_connection.connection_pool.connection_kwargs['host'],
-                    port=sync_connection.connection_pool.connection_kwargs['port'],
-                    dbid=sync_connection.connection_pool.connection_kwargs['db'],
-                    password=sync_connection.connection_pool.connection_kwargs['password'],
-                )
-                try:
-                    # Pop off any waiting message
-                    result = yield twisted_connection.blpop(list_names, timeout=self.blpop_timeout)
-                    if result:
-                        content = yield twisted_connection.get(result[1])
-                        # If the content key expired, keep going.
-                        if content is None:
-                            got_expired_content = True
-                            continue
-                        # Return the channel it's from and the message
-                        channel = result[0][len(self.prefix):]
-                        message = self.deserialize(content)
-                        # If there is a full channel name stored in the message, unpack it.
-                        if "__asgi_channel__" in message:
-                            channel = message['__asgi_channel__']
-                            del message['__asgi_channel__']
-                        defer.returnValue((channel, message))
-                finally:
-                    yield twisted_connection.disconnect()
-            # If we only got expired content, try again
-            if got_expired_content:
-                continue
-            else:
-                defer.returnValue((None, None))
-
-    ### statistics extension ###
-
-    STAT_MESSAGES_COUNT = 'messages_count'
-    STAT_MESSAGES_PENDING = 'messages_pending'
-    STAT_MESSAGES_MAX_AGE = 'messages_max_age'
-    STAT_CHANNEL_FULL = 'channel_full_count'
-
-    def global_statistics(self):
-        """
-        Returns dictionary of statistics across all channels on all shards.
-        Return value is a dictionary with following fields:
-            * messages_count, the number of messages processed since server start
-            * channel_full_count, the number of times ChannelFull exception has been risen since server start
-
-        This implementation does not provide calculated per second values.
-        Due perfomance concerns, does not provide aggregated messages_pending and messages_max_age,
-        these are only avaliable per channel.
-
-        """
-        return self._count_global_stats(self._connection_list)
-
-    def _count_global_stats(self, connection_list):
-        statistics = {
-            self.STAT_MESSAGES_COUNT: 0,
-            self.STAT_CHANNEL_FULL: 0,
-        }
-        prefix = self.stats_prefix + self.global_stats_key
-        for connection in connection_list:
-            messages_count, channel_full_count = connection.mget(
-                ':'.join((prefix, self.STAT_MESSAGES_COUNT)),
-                ':'.join((prefix, self.STAT_CHANNEL_FULL)),
-            )
-            statistics[self.STAT_MESSAGES_COUNT] += int(messages_count or 0)
-            statistics[self.STAT_CHANNEL_FULL] += int(channel_full_count or 0)
-
-        return statistics
-
-    def channel_statistics(self, channel):
-        """
-        Returns dictionary of statistics for specified channel.
-        Return value is a dictionary with following fields:
-            * messages_count, the number of messages processed since server start
-            * messages_pending, the current number of messages waiting
-            * messages_max_age, how long the oldest message has been waiting, in seconds
-            * channel_full_count, the number of times ChannelFull exception has been risen since server start
-
-        This implementation does not provide calculated per second values
-        """
-        if "!" in channel or "?" in channel:
-            connections = [self.connection(self.consistent_hash(channel))]
-        else:
-            # if we don't know where it is, we have to check in all shards
-            connections = self._connection_list
-        return self._count_channel_stats(channel, connections)
-
-    def _count_channel_stats(self, channel, connections):
-        statistics = {
-            self.STAT_MESSAGES_COUNT: 0,
-            self.STAT_MESSAGES_PENDING: 0,
-            self.STAT_MESSAGES_MAX_AGE: 0,
-            self.STAT_CHANNEL_FULL: 0,
-        }
-        prefix = self.stats_prefix + channel
-
-        channel_key = self.prefix + channel
-        for connection in connections:
-            messages_count, channel_full_count = connection.mget(
-                ':'.join((prefix, self.STAT_MESSAGES_COUNT)),
-                ':'.join((prefix, self.STAT_CHANNEL_FULL)),
-            )
-            statistics[self.STAT_MESSAGES_COUNT] += int(messages_count or 0)
-            statistics[self.STAT_CHANNEL_FULL] += int(channel_full_count or 0)
-            statistics[self.STAT_MESSAGES_PENDING] += connection.llen(channel_key)
-            oldest_message = connection.lindex(channel_key, 0)
-            if oldest_message:
-                messages_age = self.expiry - connection.ttl(oldest_message)
-                statistics[self.STAT_MESSAGES_MAX_AGE] = max(statistics[self.STAT_MESSAGES_MAX_AGE], messages_age)
-        return statistics
-
-    def _incr_statistics_counter(self, stat_name, channel, connection):
-        """ helper function to intrement counter stats in one go """
-        self.incrstatcounters(
-            keys=[
-                "{prefix}{channel}:{stat_name}".format(
-                    prefix=self.stats_prefix,
-                    channel=channel,
-                    stat_name=stat_name,
-                ),
-                "{prefix}{global_key}:{stat_name}".format(
-                    prefix=self.stats_prefix,
-                    global_key=self.global_stats_key,
-                    stat_name=stat_name,
-                )
-            ],
-            args=[self.channel_statistics_expiry, self.global_statistics_expiry],
-            client=connection,
-        )
 
     ### Serialization ###
 
@@ -523,49 +262,6 @@ class RedisChannelLayer(BaseChannelLayer):
             message = self.crypter.decrypt(message, self.expiry + 10)
         return msgpack.unpackb(message, encoding="utf8")
 
-    ### Redis Lua scripts ###
-
-    # Single-command channel send. Returns error if over capacity.
-    # Keys: message, channel_list
-    # Args: content, expiry, capacity
-    lua_chansend = """
-        if redis.call('llen', KEYS[2]) >= tonumber(ARGV[3]) then
-            return redis.error_reply("full")
-        end
-        redis.call('set', KEYS[1], ARGV[1])
-        redis.call('expire', KEYS[1], ARGV[2])
-        redis.call('rpush', KEYS[2], KEYS[1])
-        redis.call('expire', KEYS[2], ARGV[2] + 1)
-    """
-
-    # Single-command to increment counter stats.
-    # Keys: channel_stat, global_stat
-    # Args: channel_stat_expiry, global_stat_expiry
-    lua_incrstatcounters = """
-        redis.call('incr', KEYS[1])
-        redis.call('expire', KEYS[1], ARGV[1])
-        redis.call('incr', KEYS[2])
-        redis.call('expire', KEYS[2], ARGV[2])
-
-    """
-
-    lua_lpopmany = """
-        for keyCount = 1, #KEYS do
-            local result = redis.call('LPOP', KEYS[keyCount])
-            if result then
-                return {KEYS[keyCount], result}
-            end
-        end
-        return {nil, nil}
-    """
-
-    lua_delprefix = """
-        local keys = redis.call('keys', ARGV[1])
-        for i=1,#keys,5000 do
-            redis.call('del', unpack(keys, i, math.min(i+4999, #keys)))
-        end
-    """
-
     ### Internal functions ###
 
     def consistent_hash(self, value):
@@ -573,36 +269,31 @@ class RedisChannelLayer(BaseChannelLayer):
         Maps the value to a node value between 0 and 4095
         using CRC, then down to one of the ring nodes.
         """
-        if isinstance(value, six.text_type):
+        if isinstance(value, str):
             value = value.encode("utf8")
         bigval = binascii.crc32(value) & 0xfff
         ring_divisor = 4096 / float(self.ring_size)
         return int(bigval / ring_divisor)
 
-    def random_index(self):
-        return random.randint(0, len(self.hosts) - 1)
-
-    def connection(self, index):
+    async def pool(self, index):
         """
-        Returns the correct connection for the current thread.
-
-        Pass key to use a server based on consistent hashing of the key value;
-        pass None to use a random server instead.
+        Returns the correct connection pool for the index given.
+        Lazily instantiates pools.
         """
-        # If index is explicitly None, pick a random server
-        if index is None:
-            index = self.random_index()
         # Catch bad indexes
         if not 0 <= index < self.ring_size:
             raise ValueError("There are only %s hosts - you asked for %s!" % (self.ring_size, index))
-        return self._connection_list[index]
+        # Make a pool if needed and return it
+        if index not in self.pools:
+            self.pools[index] = await aioredis.create_pool(**self.hosts[index])
+        return self.pools[index]
 
     def make_fernet(self, key):
         """
         Given a single encryption key, returns a Fernet instance using it.
         """
         from cryptography.fernet import Fernet
-        if isinstance(key, six.text_type):
+        if isinstance(key, str):
             key = key.encode("utf8")
         formatted_key = base64.urlsafe_b64encode(hashlib.sha256(key).digest())
         return Fernet(formatted_key)
