@@ -13,7 +13,7 @@ install:
   # Temporary pre-release install lines
   - pip install git+https://github.com/django/daphne@2.0
   - pip install git+https://github.com/django/channels@2.0
-  - pip install -e .[tests]
+  - pip install -e .[tests] isort unify flake8
   - pip freeze
 
 script:
