@@ -1,6 +1,7 @@
 *.egg-info
 dist/
 build/
+.cache
 *.pyc
 /.tox
 .DS_Store

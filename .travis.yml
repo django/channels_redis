@@ -1,21 +1,21 @@
 sudo: false
+
 language: python
+
 python:
-  - "2.7"
-  - "3.4"
   - "3.5"
   - "3.6"
+
 services:
   - redis-server
-cache:
-  directories:
-  - $HOME/.cache/pip/wheels
+
 install:
   - pip install -U pip wheel setuptools
-  - pip install 'git+https://github.com/django/channels.git#egg=channels-benchmark&subdirectory=testproject'
   - pip install -e .[tests]
   - pip freeze
-script: py.test
-# TODO: setup test coverage tracking service.
-# after_success:
-#   - codecov
+
+script:
+  - pytest
+  - flake8
+  - isort --check-only --recursive asgi_redis tests
+  - unify --check-only --recursive --quote \" asgi_redis tests

@@ -1,5 +1,1 @@
-from .core import RedisChannelLayer
-from .local import RedisLocalChannelLayer
-from .sentinel import RedisSentinelChannelLayer
-
-__version__ = "1.4.2"
+__version__ = "2.0.0"

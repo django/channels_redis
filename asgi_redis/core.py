@@ -236,13 +236,26 @@ class RedisChannelLayer(BaseChannelLayer):
 
     ### Flush extension ###
 
-    def flush(self):
+    async def flush(self):
         """
         Deletes all messages and groups on all shards.
         """
-        for connection in self._connection_list:
-            self.delprefix(keys=[], args=[self.prefix + "*"], client=connection)
-            self.delprefix(keys=[], args=[self.stats_prefix + "*"], client=connection)
+        # Lua deletion script
+        delete_prefix = """
+            local keys = redis.call('keys', ARGV[1])
+            for i=1,#keys,5000 do
+                redis.call('del', unpack(keys, i, math.min(i+4999, #keys)))
+            end
+        """
+        # Go through each item in the pool and remove something
+        for i in range(self.ring_size):
+            pool = await self.pool(i)
+            async with pool.get() as connection:
+                await connection.eval(
+                    delete_prefix,
+                    keys=[],
+                    args=[self.prefix + "*"]
+                )
 
     ### Serialization ###
 
