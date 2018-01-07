@@ -1,5 +1,3 @@
-from __future__ import unicode_literals
-
 import asyncio
 import base64
 import binascii
