@@ -10,7 +10,9 @@ services:
   - redis-server
 
 install:
-  - pip install -U pip wheel setuptools
+  # Temporary pre-release install lines
+  - pip install git+https://github.com/django/daphne@2.0
+  - pip install git+https://github.com/django/channels@2.0
   - pip install -e .[tests]
   - pip freeze
 

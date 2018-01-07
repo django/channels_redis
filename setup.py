@@ -32,6 +32,7 @@ setup(
         'aioredis~=1.0.0',
         'msgpack-python~=0.5.0',
         'asgiref~=2.0.1',
+        'channels~=2.0.0',
     ],
     extras_require={
         'cryptography': crypto_requires,

@@ -169,8 +169,18 @@ class RedisChannelLayer(BaseChannelLayer):
         Continuous-receiving loop that fetches results into the receive buffer.
         """
         assert "!" in channel, "receive_loop called on non-process-local channel"
+        event_loop = asyncio.get_event_loop()
         while True:
-            real_channel, message = await self.receive_single(channel)
+            # Stop if the event loop did
+            if not event_loop.is_running():
+                return
+            # Catch RuntimeErrors from the loop stopping while we release
+            # a connection. Wish there was a cleaner solution here.
+            try:
+                real_channel, message = await self.receive_single(channel)
+            except RuntimeError as e:
+                if "loop is closed" not in str(e):
+                    raise
             self.receive_buffer.setdefault(real_channel, []).append(message)
 
     async def receive_single(self, channel):
@@ -233,6 +243,12 @@ class RedisChannelLayer(BaseChannelLayer):
             self.client_prefix,
             "".join(random.choice(string.ascii_letters) for i in range(12)),
         )
+
+    def __del__(self):
+        """
+        Cleanup any reader tasks that are still running
+        """
+        print("Deleting!")
 
     ### Flush extension ###
 
