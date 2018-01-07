@@ -79,12 +79,9 @@ class RedisChannelLayer(BaseChannelLayer):
         # Decode each hosts entry into a kwargs dict
         result = []
         for entry in hosts:
-            if isinstance(entry, str):
-                raise NotImplementedError("String hosts not implemented yet")
-            else:
-                result.append({
-                    "address": (entry[0], entry[1]),
-                })
+            result.append({
+                "address": entry,
+            })
         return result
 
     def _setup_encryption(self, symmetric_encryption_keys):
@@ -125,11 +122,11 @@ class RedisChannelLayer(BaseChannelLayer):
         # channels, random for general channels
         if "!" in channel:
             index = self.consistent_hash(channel)
-            pool = await self.pool(index)
+            pool = await self.connection(index)
         else:
             index = next(self._send_index_generator)
-            pool = await self.pool(index)
-        async with pool.get() as connection:
+            pool = await self.connection(index)
+        with (await pool) as connection:
             # Check the length of the list before send
             # This can allow the list to leak slightly over capacity, but that's fine.
             if await connection.llen(channel_key) > self.get_capacity(channel):
@@ -169,11 +166,7 @@ class RedisChannelLayer(BaseChannelLayer):
         Continuous-receiving loop that fetches results into the receive buffer.
         """
         assert "!" in channel, "receive_loop called on non-process-local channel"
-        event_loop = asyncio.get_event_loop()
         while True:
-            # Stop if the event loop did
-            if not event_loop.is_running():
-                return
             # Catch RuntimeErrors from the loop stopping while we release
             # a connection. Wish there was a cleaner solution here.
             real_channel, message = await self.receive_single(channel)
@@ -192,7 +185,8 @@ class RedisChannelLayer(BaseChannelLayer):
         else:
             index = next(self._receive_index_generator)
         # Get that connection and receive off of it
-        async with (await self.pool(index)).get() as connection:
+        pool = await self.connection(index)
+        with (await pool) as connection:
             channel_key = self.prefix + channel
             content = None
             while content is None:
@@ -253,20 +247,25 @@ class RedisChannelLayer(BaseChannelLayer):
                 redis.call('del', unpack(keys, i, math.min(i+4999, #keys)))
             end
         """
-        # Go through each item in the pool and remove something
+        # Go through each connection and remove all with prefix
         for i in range(self.ring_size):
-            pool = await self.pool(i)
-            async with pool.get() as connection:
-                await connection.eval(
-                    delete_prefix,
-                    keys=[],
-                    args=[self.prefix + "*"]
-                )
+            connection = await self.connection(i)
+            await connection.eval(
+                delete_prefix,
+                keys=[],
+                args=[self.prefix + "*"]
+            )
+
+    async def close(self):
         # Stop all reader tasks
         for task in self.receive_tasks.values():
             task.cancel()
         asyncio.wait(self.receive_tasks.values())
         self.receive_tasks = {}
+        # Close up all pools
+        for pool in self.pools.values():
+            pool.close()
+            await pool.wait_closed()
 
     ### Serialization ###
 
@@ -300,9 +299,9 @@ class RedisChannelLayer(BaseChannelLayer):
         ring_divisor = 4096 / float(self.ring_size)
         return int(bigval / ring_divisor)
 
-    async def pool(self, index):
+    async def connection(self, index):
         """
-        Returns the correct connection pool for the index given.
+        Returns the correct connection for the index given.
         Lazily instantiates pools.
         """
         # Catch bad indexes
@@ -310,7 +309,7 @@ class RedisChannelLayer(BaseChannelLayer):
             raise ValueError("There are only %s hosts - you asked for %s!" % (self.ring_size, index))
         # Make a pool if needed and return it
         if index not in self.pools:
-            self.pools[index] = await aioredis.create_pool(**self.hosts[index])
+            self.pools[index] = await aioredis.create_redis_pool(**self.hosts[index])
         return self.pools[index]
 
     def make_fernet(self, key):

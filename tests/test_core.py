@@ -15,6 +15,7 @@ async def channel_layer():
     channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
     await yield_(channel_layer)
     await channel_layer.flush()
+    await channel_layer.close()
 
 
 @pytest.mark.asyncio
@@ -52,18 +53,18 @@ async def test_process_local_send_receive(channel_layer):
     assert message["text"] == "Local only please"
 
 
-# @pytest.mark.asyncio
-# async def test_multi_send_receive(channel_layer):
-#     """
-#     Tests overlapping sends and receives, and ordering.
-#     """
-#     channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
-#     await channel_layer.send("test-channel-3", {"type": "message.1"})
-#     await channel_layer.send("test-channel-3", {"type": "message.2"})
-#     await channel_layer.send("test-channel-3", {"type": "message.3"})
-#     assert (await channel_layer.receive("test-channel-1"))["type"] == "message.1"
-#     assert (await channel_layer.receive("test-channel-1"))["type"] == "message.2"
-#     assert (await channel_layer.receive("test-channel-1"))["type"] == "message.3"
+@pytest.mark.asyncio
+async def test_multi_send_receive(channel_layer):
+    """
+    Tests overlapping sends and receives, and ordering.
+    """
+    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
+    await channel_layer.send("test-channel-3", {"type": "message.1"})
+    await channel_layer.send("test-channel-3", {"type": "message.2"})
+    await channel_layer.send("test-channel-3", {"type": "message.3"})
+    assert (await channel_layer.receive("test-channel-3"))["type"] == "message.1"
+    assert (await channel_layer.receive("test-channel-3"))["type"] == "message.2"
+    assert (await channel_layer.receive("test-channel-3"))["type"] == "message.3"
 
 
 @pytest.mark.asyncio
