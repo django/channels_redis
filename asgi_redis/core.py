@@ -176,11 +176,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 return
             # Catch RuntimeErrors from the loop stopping while we release
             # a connection. Wish there was a cleaner solution here.
-            try:
-                real_channel, message = await self.receive_single(channel)
-            except RuntimeError as e:
-                if "loop is closed" not in str(e):
-                    raise
+            real_channel, message = await self.receive_single(channel)
             self.receive_buffer.setdefault(real_channel, []).append(message)
 
     async def receive_single(self, channel):
@@ -244,12 +240,6 @@ class RedisChannelLayer(BaseChannelLayer):
             "".join(random.choice(string.ascii_letters) for i in range(12)),
         )
 
-    def __del__(self):
-        """
-        Cleanup any reader tasks that are still running
-        """
-        print("Deleting!")
-
     ### Flush extension ###
 
     async def flush(self):
@@ -272,6 +262,11 @@ class RedisChannelLayer(BaseChannelLayer):
                     keys=[],
                     args=[self.prefix + "*"]
                 )
+        # Stop all reader tasks
+        for task in self.receive_tasks.values():
+            task.cancel()
+        asyncio.wait(self.receive_tasks.values())
+        self.receive_tasks = {}
 
     ### Serialization ###
 
