@@ -116,7 +116,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # If it's a process-local channel, strip off local part and stick full name in message
         if "!" in channel:
             message = dict(message.items())
-            message['__asgi_channel__'] = channel
+            message["__asgi_channel__"] = channel
             channel = self.non_local_name(channel)
         # Write out message into expiring key (avoids big items in list)
         channel_key = self.prefix + channel
@@ -195,8 +195,8 @@ class RedisChannelLayer(BaseChannelLayer):
             # TODO: message expiry?
             # If there is a full channel name stored in the message, unpack it.
             if "__asgi_channel__" in message:
-                channel = message['__asgi_channel__']
-                del message['__asgi_channel__']
+                channel = message["__asgi_channel__"]
+                del message["__asgi_channel__"]
             return channel, message
 
     async def receive_buffer_lpop(self, channel):

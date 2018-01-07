@@ -20,7 +20,7 @@ class TwistedTests(twisted.trial.unittest.TestCase):
         try:
             import twisted
         except ImportError:
-            raise unittest.SkipTest('Twisted not present, skipping Twisted tests.')
+            raise unittest.SkipTest("Twisted not present, skipping Twisted tests.")
 
     def setUp(self):
         super(TwistedTests, self).setUp()

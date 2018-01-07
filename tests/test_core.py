@@ -64,28 +64,28 @@ class RedisLayerTests(ConformanceTestCase):
         self.assertEqual(
             self.channel_layer.global_statistics(),
             {
-                'messages_count': 3,
-                'channel_full_count': 0,
+                "messages_count": 3,
+                "channel_full_count": 0,
             }
         )
 
         self.assertEqual(
             self.channel_layer.channel_statistics("first_channel"),
             {
-                'messages_count': 2,
-                'messages_pending': 2,
-                'messages_max_age': 0,
-                'channel_full_count': 0,
+                "messages_count": 2,
+                "messages_pending": 2,
+                "messages_max_age": 0,
+                "channel_full_count": 0,
             }
         )
 
         self.assertEqual(
             self.channel_layer.channel_statistics("second_channel"),
             {
-                'messages_count': 1,
-                'messages_pending': 1,
-                'messages_max_age': 0,
-                'channel_full_count': 0,
+                "messages_count": 1,
+                "messages_pending": 1,
+                "messages_max_age": 0,
+                "channel_full_count": 0,
             }
         )
 

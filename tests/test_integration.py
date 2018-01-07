@@ -20,10 +20,10 @@ class IntegrationTest(ChannelLiveServerTestCase):
         """Test the ability to send and receive messages over WebSocket."""
 
         ws = websocket.create_connection(self.live_server_ws_url)
-        ws.send('test')
+        ws.send("test")
         response = ws.recv()
         ws.close()
-        assert 'test' == response
+        assert "test" == response
 
     def test_benchmark(self):
         """Run channels benchmark test suite."""
