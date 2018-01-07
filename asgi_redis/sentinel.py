@@ -3,12 +3,13 @@ from __future__ import unicode_literals
 import hashlib
 import itertools
 import random
-import redis
-from redis.sentinel import Sentinel
-from redis.client import Script
-from redis._compat import b
-import six
 import time
+
+import redis
+import six
+from redis._compat import b
+from redis.client import Script
+from redis.sentinel import Sentinel
 
 from asgi_redis import RedisChannelLayer
 

@@ -2,8 +2,9 @@ import subprocess
 import sys
 import time
 
-import benchmark
 import requests
+
+import benchmark
 import websocket
 from channels.test import ChannelLiveServerTestCase
 

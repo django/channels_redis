@@ -1,15 +1,15 @@
 from __future__ import unicode_literals
+
 import time
 import unittest
+
 import redis.sentinel
 from redis.sentinel import MasterNotFoundError
+
 from asgi_redis import RedisSentinelChannelLayer
 from asgiref.conformance import ConformanceTestCase
 
-from .constants import (
-    SERVICE_NAMES,
-    SENTINEL_HOSTS,
-)
+from .constants import SENTINEL_HOSTS, SERVICE_NAMES
 
 
 def sentinel_exists():

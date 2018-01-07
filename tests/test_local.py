@@ -1,4 +1,5 @@
 from __future__ import unicode_literals
+
 from asgi_redis import RedisLocalChannelLayer
 from asgiref.conformance import ConformanceTestCase
 

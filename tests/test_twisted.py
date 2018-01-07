@@ -1,5 +1,9 @@
 from __future__ import unicode_literals
+
 import unittest
+
+from .constants import REDIS_HOSTS
+from .test_core import RedisChannelLayer
 
 # Twisted tests are skipped in setUpClass below if Twisted isn't present.
 try:
@@ -9,8 +13,6 @@ except ImportError:
     pass
 
 
-from .test_core import RedisChannelLayer
-from .constants import REDIS_HOSTS
 
 
 class TwistedTests(twisted.trial.unittest.TestCase):

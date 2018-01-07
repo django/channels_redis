@@ -1,17 +1,18 @@
 from __future__ import unicode_literals
 
-import aioredis
 import asyncio
 import base64
 import binascii
 import hashlib
 import itertools
-import msgpack
 import random
 import string
 
-from channels.layers import BaseChannelLayer
+import aioredis
+import msgpack
+
 from channels.exceptions import ChannelFull
+from channels.layers import BaseChannelLayer
 
 
 class UnsupportedRedis(Exception):
