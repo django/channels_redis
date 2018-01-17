@@ -30,7 +30,7 @@ setup(
     include_package_data=True,
     install_requires=[
         "aioredis~=1.0.0",
-        "msgpack-python~=0.5.0",
+        "msgpack~=0.5.0",
         "asgiref~=2.0.1",
         "channels~=2.0.0",
     ],
