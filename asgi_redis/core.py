@@ -5,6 +5,7 @@ import hashlib
 import itertools
 import random
 import string
+import time
 
 import aioredis
 import msgpack
@@ -264,6 +265,72 @@ class RedisChannelLayer(BaseChannelLayer):
         for pool in self.pools.values():
             pool.close()
             await pool.wait_closed()
+
+    ### Groups extension ###
+
+    async def group_add(self, group, channel):
+        """
+        Adds the channel name to a group.
+        """
+        # Check the inputs
+        assert self.valid_group_name(group), "Group name not valid"
+        assert self.valid_channel_name(channel), "Channel name not valid"
+        # Get a connection to the right shard
+        group_key = self._group_key(group)
+        pool = await self.connection(self.consistent_hash(group))
+        with (await pool) as connection:
+            # Add to group sorted set with creation time as timestamp
+            await connection.zadd(
+                group_key,
+                time.time(),
+                channel,
+            )
+            # Set expiration to be group_expiry, since everything in
+            # it at this point is guaranteed to expire before that
+            await connection.expire(group_key, self.group_expiry)
+
+    async def group_discard(self, group, channel):
+        """
+        Removes the channel from the named group if it is in the group;
+        does nothing otherwise (does not error)
+        """
+        assert self.valid_group_name(group), "Group name not valid"
+        assert self.valid_channel_name(channel), "Channel name not valid"
+        key = self._group_key(group)
+        pool = await self.connection(self.consistent_hash(group))
+        await pool.zrem(
+            key,
+            channel,
+        )
+
+    async def group_send(self, group, message):
+        """
+        Sends a message to the entire group.
+        """
+        assert self.valid_group_name(group), "Group name not valid"
+        # Retrieve list of all channel names
+        key = self._group_key(group)
+        pool = await self.connection(self.consistent_hash(group))
+        with (await pool) as connection:
+            # Discard old channels based on group_expiry
+            await connection.zremrangebyscore(key, min=0, max=int(time.time()) - self.group_expiry)
+            # Return current lot
+            channel_names = [
+                x.decode("utf8") for x in
+                await connection.zrange(key, 0, -1)
+            ]
+        # TODO: More efficient implementation (lua script per shard?)
+        for channel in channel_names:
+            try:
+                await self.send(channel, message)
+            except self.ChannelFull:
+                pass
+
+    def _group_key(self, group):
+        """
+        Common function to make the storage key for the group.
+        """
+        return ("%s:group:%s" % (self.prefix, group)).encode("utf8")
 
     ### Serialization ###
 

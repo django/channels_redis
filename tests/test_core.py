@@ -1,3 +1,6 @@
+import asyncio
+
+import async_timeout
 import pytest
 from async_generator import async_generator, yield_
 
@@ -85,3 +88,24 @@ async def test_reject_bad_client_prefix(channel_layer):
     """
     with pytest.raises(AssertionError):
         await channel_layer.receive("not-client-prefix!local_part")
+
+
+@pytest.mark.asyncio
+async def test_groups_basic(channel_layer):
+    """
+    Tests basic group operation.
+    """
+    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
+    await channel_layer.group_add("test-group", "test-gr-chan-1")
+    await channel_layer.group_add("test-group", "test-gr-chan-2")
+    await channel_layer.group_add("test-group", "test-gr-chan-3")
+    await channel_layer.group_discard("test-group", "test-gr-chan-2")
+    await channel_layer.group_send("test-group", {"type": "message.1"})
+    # Make sure we get the message on the two channels that were in
+    async with async_timeout.timeout(1):
+        assert (await channel_layer.receive("test-gr-chan-1"))["type"] == "message.1"
+        assert (await channel_layer.receive("test-gr-chan-3"))["type"] == "message.1"
+    # Make sure the removed channel did not get the message
+    with pytest.raises(asyncio.TimeoutError):
+        async with async_timeout.timeout(1):
+            await channel_layer.receive("test-gr-chan-2")
