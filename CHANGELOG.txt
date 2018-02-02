@@ -1,3 +1,10 @@
+2.0.0 (2018-02-01)
+------------------
+
+* Rewrite and rename to channels_redis to be based on asyncio and the
+  Channels 2 channel layer specification.
+
+
 1.4.2 (2017-06-20)
 ------------------
 
