@@ -43,7 +43,7 @@ async def test_process_local_send_receive(channel_layer):
     """
     Makes sure we can send a message to a process-local channel then receive it.
     """
-    channel_name = channel_layer.new_channel()
+    channel_name = await channel_layer.new_channel()
     await channel_layer.send(
         channel_name,
         {
