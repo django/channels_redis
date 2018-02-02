@@ -1,39 +1,38 @@
-asgi_redis
-==========
+channels_redis
+==============
 
-.. image:: https://api.travis-ci.org/django/asgi_redis.svg
-    :target: https://travis-ci.org/django/asgi_redis
+.. image:: https://api.travis-ci.org/django/channels_redis.svg
+    :target: https://travis-ci.org/django/channels_redis
 
-.. image:: https://img.shields.io/pypi/v/asgi_redis.svg
-    :target: https://pypi.python.org/pypi/asgi_redis
+.. image:: https://img.shields.io/pypi/v/channels_redis.svg
+    :target: https://pypi.python.org/pypi/channels_redis
 
-An ASGI channel layer that uses Redis as its backing store, and supports
+A Django Channels channel layer that uses Redis as its backing store, and supports
 both a single-server and sharded configurations, as well as group support.
 
 
 Usage
 -----
 
-You'll need to instantiate the channel layer with at least ``hosts``,
-and other options if you need them.
+Set up the channel layer in your Django settings file like so::
 
-Example:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [("localhost", 6379)],
+            },
+        },
+    }
 
-.. code-block:: python
-
-    channel_layer = RedisChannelLayer(
-        host="redis",
-        db=4,
-        channel_capacity={
-            "http.request": 200,
-            "http.response*": 10,
-        }
-    )
+Possible options for ``CONFIG`` are listed below.
 
 ``hosts``
 ~~~~~~~~~
 
-The server(s) to connect to, as either URIs or ``(host, port)`` tuples. Defaults to ``['localhost', 6379]``. Pass multiple hosts to enable sharding, but note that changing the host list will lose some sharded data.
+The server(s) to connect to, as either URIs or ``(host, port)`` tuples.
+Defaults to ``['localhost', 6379]``. Pass multiple hosts to enable sharding,
+but note that changing the host list will lose some sharded data.
 
 ``prefix``
 ~~~~~~~~~~
@@ -81,10 +80,18 @@ to 10, and all ``websocket.send!`` channels to 20:
 
 .. code-block:: python
 
-    channel_capacity={
-        "http.request": 200,
-        "http.response!*": 10,
-        re.compile(r"^websocket.send\!.+"): 20,
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [("localhost", 6379)],
+                "channel_capacity": {
+                    "http.request": 200,
+                    "http.response!*": 10,
+                    re.compile(r"^websocket.send\!.+"): 20,
+                },
+            },
+        },
     }
 
 If you want to enforce a matching order, use an ``OrderedDict`` as the
@@ -95,9 +102,9 @@ argument; channels will then be matched in the order the dict provides them.
 
 Pass this to enable the optional symmetric encryption mode of the backend. To
 use it, make sure you have the ``cryptography`` package installed, or specify
-the ``cryptography`` extra when you install ``asgi_redis``::
+the ``cryptography`` extra when you install ``channels_redis``::
 
-    pip install asgi_redis[cryptography]
+    pip install channels_redis[cryptography]
 
 ``symmetric_encryption_keys`` should be a list of strings, with each string
 being an encryption key. The first key is always used for encryption; all are
@@ -121,8 +128,7 @@ If you're using Django, you may also wish to set this to your site's
 
     CHANNEL_LAYERS = {
         "default": {
-            "BACKEND": "asgi_redis.RedisChannelLayer",
-            "ROUTING": "my_project.routing.channel_routing",
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
                 "hosts": ["redis://:password@127.0.0.1:6379/0"],
                 "symmetric_encryption_keys": [SECRET_KEY],
@@ -130,84 +136,11 @@ If you're using Django, you may also wish to set this to your site's
         },
     }
 
-``connection_kwargs``
----------------------
-
-Optional extra arguments to pass to the ``redis-py`` connection class. Options
-include ``socket_connect_timeout``, ``socket_timeout``, ``socket_keepalive``,
-and ``socket_keepalive_options``. See the
-`redis-py documentation <https://redis-py.readthedocs.io/en/latest/>`_ for more.
-
-
-Local-and-Remote Mode
----------------------
-
-A "local and remote" mode is also supported, where the Redis channel layer
-works in conjunction with a machine-local channel layer (``asgi_ipc``) in order
-to route all normal channels over the local layer, while routing all
-single-reader and process-specific channels over the Redis layer.
-
-This allows traffic on things like ``http.request`` and ``websocket.receive``
-to stay in the local layer and not go through Redis, while still allowing Group
-send and sends to arbitrary channels terminated on other machines to work
-correctly. It will improve performance and decrease the load on your
-Redis cluster, but **it requires all normal channels are consumed on the
-same machine**.
-
-In practice, this means you MUST run workers that consume every channel your
-application has code to handle on the same machine as your HTTP or WebSocket
-terminator. If you fail to do this, requests to that machine will get routed
-into only the local queue and hang as nothing is reading them.
-
-To use it, just use the ``asgi_redis.RedisLocalChannelLayer`` class in your
-configuration instead of ``RedisChannelLayer`` and make sure you have the
-``asgi_ipc`` package installed; no other change is needed.
-
-
-Sentinel Mode
--------------
-
-"Sentinel" mode is also supported, where the Redis channel layer will connect to
-a redis sentinel cluster to find the present Redis master before writing or reading
-data.
-
-Sentinel mode supports sharding, but does not support multiple Sentinel clusters. To
-run sharding of keys across multiple Redis clusters, use a single sentinel cluster,
-but have that sentinel cluster monitor multiple "services". Then in the configuration
-for the RedisSentinelChannelLayer, add a list of the service names. You can also
-leave the list of services blank, and the layer will pull all services that are
-configured on the sentinel master.
-
-Redis Sentinel mode does not support URL-style connection strings, just tuple-based ones.
-
-Configuration for Sentinel mode looks like this:
-
-.. code-block:: python
-
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "asgi_redis.RedisSentinelChannelLayer",
-            "CONFIG": {
-                "hosts": [("10.0.0.1", 26739), ("10.0.0.2", 26379), ("10.0.0.3", 26379)],
-                "services": ["shard1", "shard2", "shard3"],
-            },
-        },
-    }
-
-The "shard1", "shard2", etc entries correspond to the name of the service configured in  your
-redis `sentinel.conf` file. For example, if your `sentinel.conf` says ``sentinel monitor local 127.0.0.1 6379 1``
-then you would want to include "local" as a service in the `RedisSentinelChannelLayer` configuration.
-
-You may also pass a ``sentinel_refresh_interval`` value in the ``CONFIG``, which
-will enable caching of the Sentinel results for the specified number of seconds.
-This is recommended to reduce the need to query Sentinel every time; even a
-low value of 5 seconds will significantly reduce overhead.
 
 Dependencies
 ------------
 
-Redis >= 2.6 is required for `asgi_redis`. It supports Python 2.7, 3.4,
-3.5 and 3.6.
+Redis >= 2.6 is required for `channels_redis`. It supports Python 3.5 and up.
 
 Contributing
 ------------

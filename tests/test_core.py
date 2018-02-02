@@ -4,7 +4,7 @@ import async_timeout
 import pytest
 from async_generator import async_generator, yield_
 
-from asgi_redis.core import RedisChannelLayer
+from channels_redis.core import RedisChannelLayer
 
 TEST_HOSTS = [("localhost", 6379)]
 

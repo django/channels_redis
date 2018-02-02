@@ -2,7 +2,7 @@ from os.path import dirname, join
 
 from setuptools import find_packages, setup
 
-from asgi_redis import __version__
+from channels_redis import __version__
 
 # We use the README as the long_description
 readme = open(join(dirname(__file__), "README.rst")).read()
@@ -18,9 +18,9 @@ test_requires = crypto_requires + [
 
 
 setup(
-    name="asgi_redis",
+    name="channels_redis",
     version=__version__,
-    url="http://github.com/django/asgi_redis/",
+    url="http://github.com/django/channels_redis/",
     author="Django Software Foundation",
     author_email="foundation@djangoproject.com",
     description="Redis-backed ASGI channel layer implementation",

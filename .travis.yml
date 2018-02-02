@@ -19,5 +19,5 @@ install:
 script:
   - pytest
   - flake8
-  - isort --check-only --diff --recursive asgi_redis tests
-  - unify --check-only --recursive --quote \" asgi_redis tests
+  - isort --check-only --diff --recursive channels_redis tests
+  - unify --check-only --recursive --quote \" channels_redis tests
