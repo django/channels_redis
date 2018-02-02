@@ -10,6 +10,10 @@ channels_redis
 A Django Channels channel layer that uses Redis as its backing store, and supports
 both a single-server and sharded configurations, as well as group support.
 
+**Note:** Prior versions of this package were called ``asgi_redis`` and are
+still available under PyPI as that name if you need them for Channels 1.x projects.
+This package is for Channels 2 projects only.
+
 
 Usage
 -----
