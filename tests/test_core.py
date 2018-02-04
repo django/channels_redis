@@ -4,7 +4,7 @@ import async_timeout
 import pytest
 from async_generator import async_generator, yield_
 
-from channels_redis.core import RedisChannelLayer
+from channels_redis.core import ChannelFull, RedisChannelLayer
 
 TEST_HOSTS = [("localhost", 6379)]
 
@@ -15,7 +15,7 @@ async def channel_layer():
     """
     Channel layer fixture that flushes automatically.
     """
-    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
+    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS, capacity=3)
     await yield_(channel_layer)
     await channel_layer.flush()
     await channel_layer.close()
@@ -36,6 +36,18 @@ async def test_send_receive(channel_layer):
     message = await channel_layer.receive("test-channel-1")
     assert message["type"] == "test.message"
     assert message["text"] == "Ahoy-hoy!"
+
+
+@pytest.mark.asyncio
+async def test_send_capacity(channel_layer):
+    """
+    Makes sure we get ChannelFull when we hit the send capacity
+    """
+    await channel_layer.send("test-channel-1", {"type": "test.message"})
+    await channel_layer.send("test-channel-1", {"type": "test.message"})
+    await channel_layer.send("test-channel-1", {"type": "test.message"})
+    with pytest.raises(ChannelFull):
+        await channel_layer.send("test-channel-1", {"type": "test.message"})
 
 
 @pytest.mark.asyncio
@@ -109,3 +121,17 @@ async def test_groups_basic(channel_layer):
     with pytest.raises(asyncio.TimeoutError):
         async with async_timeout.timeout(1):
             await channel_layer.receive("test-gr-chan-2")
+
+
+@pytest.mark.asyncio
+async def test_groups_channel_full(channel_layer):
+    """
+    Tests that group_send ignores ChannelFull
+    """
+    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
+    await channel_layer.group_add("test-group", "test-gr-chan-1")
+    await channel_layer.group_send("test-group", {"type": "message.1"})
+    await channel_layer.group_send("test-group", {"type": "message.1"})
+    await channel_layer.group_send("test-group", {"type": "message.1"})
+    await channel_layer.group_send("test-group", {"type": "message.1"})
+    await channel_layer.group_send("test-group", {"type": "message.1"})

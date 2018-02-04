@@ -128,7 +128,7 @@ class RedisChannelLayer(BaseChannelLayer):
         with (await pool) as connection:
             # Check the length of the list before send
             # This can allow the list to leak slightly over capacity, but that's fine.
-            if await connection.llen(channel_key) > self.get_capacity(channel):
+            if await connection.llen(channel_key) >= self.get_capacity(channel):
                 raise ChannelFull()
             # Push onto the list then set it to expire in case it's not consumed
             await connection.rpush(channel_key, self.serialize(message))
@@ -323,7 +323,7 @@ class RedisChannelLayer(BaseChannelLayer):
         for channel in channel_names:
             try:
                 await self.send(channel, message)
-            except self.ChannelFull:
+            except ChannelFull:
                 pass
 
     def _group_key(self, group):
