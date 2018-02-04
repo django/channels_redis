@@ -1,3 +1,10 @@
+2.0.2 (2018-02-04)
+------------------
+
+* Capacity enforcement was off by one; it's now correct
+* group_send no longer errors with the wrong ChannelFull exception
+
+
 2.0.1 (2018-02-02)
 ------------------
 
