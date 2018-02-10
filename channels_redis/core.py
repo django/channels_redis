@@ -44,7 +44,7 @@ class RedisChannelLayer(BaseChannelLayer):
         self.expiry = expiry
         self.group_expiry = group_expiry
         self.capacity = capacity
-        self.channel_capacity = channel_capacity or {}
+        self.channel_capacity = self.compile_capacities(channel_capacity or {})
         self.prefix = prefix
         self.pools = {}
         assert isinstance(self.prefix, str), "Prefix must be unicode"

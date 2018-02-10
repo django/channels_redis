@@ -51,6 +51,19 @@ async def test_send_capacity(channel_layer):
 
 
 @pytest.mark.asyncio
+async def test_send_specific_capacity(channel_layer):
+    """
+    Makes sure we get ChannelFull when we hit the send capacity on a specific channel
+    """
+    custom_channel_layer = RedisChannelLayer(hosts=TEST_HOSTS, capacity=3, channel_capacity={"one": 1})
+    await custom_channel_layer.send("one", {"type": "test.message"})
+    with pytest.raises(ChannelFull):
+        await custom_channel_layer.send("one", {"type": "test.message"})
+    await custom_channel_layer.flush()
+    await custom_channel_layer.close()
+
+
+@pytest.mark.asyncio
 async def test_process_local_send_receive(channel_layer):
     """
     Makes sure we can send a message to a process-local channel then receive it.
