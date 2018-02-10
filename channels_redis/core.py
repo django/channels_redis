@@ -133,6 +133,7 @@ class RedisChannelLayer(BaseChannelLayer):
             # Push onto the list then set it to expire in case it's not consumed
             await connection.rpush(channel_key, self.serialize(message))
             await connection.expire(channel_key, int(self.expiry))
+            connection.close()
 
     async def receive(self, channel):
         """
@@ -194,6 +195,7 @@ class RedisChannelLayer(BaseChannelLayer):
             message = self.deserialize(content[1])
             # TODO: message expiry?
             # If there is a full channel name stored in the message, unpack it.
+            connection.close()
             if "__asgi_channel__" in message:
                 channel = message["__asgi_channel__"]
                 del message["__asgi_channel__"]
@@ -254,6 +256,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 keys=[],
                 args=[self.prefix + "*"]
             )
+            connection.close()
 
     async def close(self):
         # Stop all reader tasks
@@ -288,6 +291,7 @@ class RedisChannelLayer(BaseChannelLayer):
             # Set expiration to be group_expiry, since everything in
             # it at this point is guaranteed to expire before that
             await connection.expire(group_key, self.group_expiry)
+            connection.close()
 
     async def group_discard(self, group, channel):
         """
@@ -319,6 +323,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 x.decode("utf8") for x in
                 await connection.zrange(key, 0, -1)
             ]
+            connection.close()
         # TODO: More efficient implementation (lua script per shard?)
         for channel in channel_names:
             try:
