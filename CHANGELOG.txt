@@ -1,7 +1,17 @@
+2.0.3 (2018-02-14)
+------------------
+
+* Don't allow connection pools from other event loops to be re-used (fixes
+  various RuntimeErrors seen previously)
+
+* channel_capacity is compiled in the constructor and now works again
+
+
 2.0.2 (2018-02-04)
 ------------------
 
 * Capacity enforcement was off by one; it's now correct
+
 * group_send no longer errors with the wrong ChannelFull exception
 
 
