@@ -46,8 +46,10 @@ class RedisChannelLayer(BaseChannelLayer):
         self.capacity = capacity
         self.channel_capacity = self.compile_capacities(channel_capacity or {})
         self.prefix = prefix
-        self.pools = {}
         assert isinstance(self.prefix, str), "Prefix must be unicode"
+        # Cached redis connection pools and the event loop they are from
+        self.pools = {}
+        self.pools_loop = None
         # Configure the host objects
         self.hosts = self.decode_hosts(hosts)
         self.ring_size = len(self.hosts)
@@ -372,7 +374,14 @@ class RedisChannelLayer(BaseChannelLayer):
         # Catch bad indexes
         if not 0 <= index < self.ring_size:
             raise ValueError("There are only %s hosts - you asked for %s!" % (self.ring_size, index))
-        # Make a pool if needed and return it
+        # Check to see if the stored pools are for the right event loop
+        # TODO: Maybe cache from multiple event loops to avoid AsyncToSync wiping
+        # out the main thread's cache (but we'd need to cap the number of entries
+        # with an LRU strategy or something)
+        if self.pools_loop != asyncio.get_event_loop():
+            self.pools = {}
+            self.pools_loop = asyncio.get_event_loop()
+        # Make the new pool if it does not exist
         if index not in self.pools:
             self.pools[index] = await aioredis.create_redis_pool(**self.hosts[index])
         return self.pools[index]
