@@ -4,6 +4,7 @@ import async_timeout
 import pytest
 from async_generator import async_generator, yield_
 
+from asgiref.sync import async_to_sync
 from channels_redis.core import ChannelFull, RedisChannelLayer
 
 TEST_HOSTS = [("localhost", 6379)]
@@ -35,6 +36,34 @@ async def test_send_receive(channel_layer):
     message = await channel_layer.receive("test-channel-1")
     assert message["type"] == "test.message"
     assert message["text"] == "Ahoy-hoy!"
+
+
+@pytest.mark.parametrize("channel_layer", [None])  # Fixture can't handle sync
+def test_double_receive(channel_layer):
+    """
+    Makes sure we can receive from two different event loops using
+    process-local channel names.
+    """
+    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS, capacity=3)
+    channel_name_1 = async_to_sync(channel_layer.new_channel)()
+    channel_name_2 = async_to_sync(channel_layer.new_channel)()
+    async_to_sync(channel_layer.send)(channel_name_1, {"type": "test.message.1"})
+    async_to_sync(channel_layer.send)(channel_name_2, {"type": "test.message.2"})
+
+    # Make things to listen on the loops
+    async def listen1():
+        message = await channel_layer.receive(channel_name_1)
+        assert message["type"] == "test.message.1"
+
+    async def listen2():
+        message = await channel_layer.receive(channel_name_2)
+        assert message["type"] == "test.message.2"
+
+    # Run them inside threads
+    async_to_sync(listen2)()
+    async_to_sync(listen1)()
+    # Clean up
+    async_to_sync(channel_layer.flush)()
 
 
 @pytest.mark.asyncio

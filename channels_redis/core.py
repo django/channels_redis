@@ -63,8 +63,9 @@ class RedisChannelLayer(BaseChannelLayer):
         self._setup_encryption(symmetric_encryption_keys)
         # Buffered messages by process-local channel name
         self.receive_buffer = {}
-        # Coroutine currently receiving the process-local channel.
-        self.receive_lock = asyncio.Lock()
+        # Coroutine currently receiving the process-local channel and its loop
+        self.receive_lock = None
+        self.receive_lock_loop = None
 
     def decode_hosts(self, hosts):
         """
@@ -182,11 +183,30 @@ class RedisChannelLayer(BaseChannelLayer):
         assert "!" in specific_channel, "receive_loop called on non-process-local channel"
         general_channel = self.non_local_name(specific_channel)
         while True:
-            async with self.receive_lock:
+            async with self.check_receive_lock():
                 real_channel, message = await self.receive_single(general_channel)
                 self.receive_buffer.setdefault(real_channel, []).append(message)
                 if real_channel == specific_channel:
                     return
+
+    def check_receive_lock(self):
+        """
+        Returns the receive lock, doing current-loop checking.
+        """
+        loop = asyncio.get_event_loop()
+        if self.receive_lock_loop is None:
+            # Lock was not yet populated. Populate it!
+            self.receive_lock_loop = loop
+            self.receive_lock = asyncio.Lock()
+        elif self.receive_lock_loop != loop:
+            # See if the lock is locked
+            if self.receive_lock.locked():
+                raise RuntimeError("Two event loops are trying to receive() on one channel layer at once!")
+            # OK, it's probably stale, replace it
+            self.receive_lock_loop = loop
+            self.receive_lock = asyncio.Lock()
+        # Otherwise lock matches our loop, this is fine.
+        return self.receive_lock
 
     async def receive_single(self, channel):
         """
@@ -215,7 +235,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 del message["__asgi_channel__"]
             return channel, message
 
-    async def new_channel(self, prefix="specific."):
+    async def new_channel(self, prefix="specific"):
         """
         Returns a new channel name that can be used by something in our
         process as a specific channel.
