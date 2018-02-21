@@ -18,7 +18,6 @@ async def channel_layer():
     channel_layer = RedisChannelLayer(hosts=TEST_HOSTS, capacity=3)
     await yield_(channel_layer)
     await channel_layer.flush()
-    await channel_layer.close()
 
 
 @pytest.mark.asyncio
@@ -60,7 +59,6 @@ async def test_send_specific_capacity(channel_layer):
     with pytest.raises(ChannelFull):
         await custom_channel_layer.send("one", {"type": "test.message"})
     await custom_channel_layer.flush()
-    await custom_channel_layer.close()
 
 
 @pytest.mark.asyncio
