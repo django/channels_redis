@@ -1,3 +1,12 @@
+2.1.0 (2018-02-21)
+------------------
+
+* Internals have been reworked to remove connection pooling and sharing. All
+  operations will now open a fresh Redis connection, but the backend will no
+  longer leak connections or Futures if used in multiple successive event loops
+  (e.g. via multiple calls to sync_to_async)
+
+
 2.0.3 (2018-02-14)
 ------------------
 
