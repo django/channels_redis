@@ -74,7 +74,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         # If no hosts were provided, return a default value
         if not hosts:
-            return {"address": ("localhost", 6379)}
+            return [{"address": ("localhost", 6379)}]
         # If they provided just a string, scold them.
         if isinstance(hosts, (str, bytes)):
             raise ValueError("You must pass a list of Redis hosts, even if there is only one.")
