@@ -12,6 +12,7 @@ import msgpack
 
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
+from collections import defaultdict
 
 
 class UnsupportedRedis(Exception):
@@ -314,24 +315,42 @@ class RedisChannelLayer(BaseChannelLayer):
         key = self._group_key(group)
 
         group_send_lua = """
-            local prefix = ARGV[1]
-            local group = ARGV[2]
-            local message = ARGV[3]
-            local expiry = ARGV[4]
-            local channels = redis.call('ZRANGE', group, 0, -1)
+            local channels = KEYS
+            local message = ARGV[1]
+            local expiry = ARGV[2]
             for i,channel in ipairs(channels) do
-                redis.call('RPUSH', prefix .. channel, message)
-                redis.call('EXPIRE', prefix .. channel, expiry)
+                redis.call('RPUSH', channel, message)
+                redis.call('EXPIRE', channel, expiry)
             end
         """
 
         async with self.connection(self.consistent_hash(group)) as connection:
             # Discard old channels based on group_expiry
             await connection.zremrangebyscore(key, min=0, max=int(time.time()) - self.group_expiry)
-            await connection.eval(
-                group_send_lua,
-                keys=[], args=[self.prefix, key, self.serialize(message), int(self.expiry)]
-            )
+            channel_names = [
+                x.decode("utf8") for x in
+                await connection.zrange(key, 0, -1)
+            ]
+
+        channel_to_connection_index = self._map_channel_to_connection(channel_names)
+        for connection_index, channel_names in channel_to_connection_index.items():
+            async with self.connection(connection_index) as connection:
+                await connection.eval(
+                    group_send_lua,
+                    keys=channel_names,
+                    args=[self.serialize(message), int(self.expiry)]
+                )
+
+    def _map_channel_to_connection(self, channel_names):
+        """
+        For a list of channel names, bucket each one to a dict keyed by the
+        connection index
+        """
+        channel_to_connection = defaultdict(list)
+        for channel_name in channel_names:
+            channel_key = self.prefix + channel_name
+            channel_to_connection[self.consistent_hash(channel_name)].append(channel_key)
+        return channel_to_connection
 
     def _group_key(self, group):
         """
