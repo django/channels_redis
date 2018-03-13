@@ -310,22 +310,28 @@ class RedisChannelLayer(BaseChannelLayer):
         Sends a message to the entire group.
         """
         assert self.valid_group_name(group), "Group name not valid"
-        # Retrieve list of all channel names
+
         key = self._group_key(group)
+
+        group_send_lua = """
+            local prefix = ARGV[1]
+            local group = ARGV[2]
+            local message = ARGV[3]
+            local expiry = ARGV[4]
+            local channels = redis.call('ZRANGE', group, 0, -1)
+            for i,channel in ipairs(channels) do
+                redis.call('RPUSH', prefix .. channel, message)
+                redis.call('EXPIRE', prefix .. channel, expiry)
+            end
+        """
+
         async with self.connection(self.consistent_hash(group)) as connection:
             # Discard old channels based on group_expiry
             await connection.zremrangebyscore(key, min=0, max=int(time.time()) - self.group_expiry)
-            # Return current lot
-            channel_names = [
-                x.decode("utf8") for x in
-                await connection.zrange(key, 0, -1)
-            ]
-        # TODO: More efficient implementation (lua script per shard?)
-        for channel in channel_names:
-            try:
-                await self.send(channel, message)
-            except ChannelFull:
-                pass
+            await connection.eval(
+                group_send_lua,
+                keys=[], args=[self.prefix, key, self.serialize(message), int(self.expiry)]
+            )
 
     def _group_key(self, group):
         """
