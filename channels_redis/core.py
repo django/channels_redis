@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import binascii
+import collections
 import hashlib
 import itertools
 import random
@@ -12,7 +13,6 @@ import msgpack
 
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
-from collections import defaultdict
 
 
 class UnsupportedRedis(Exception):
@@ -346,7 +346,7 @@ class RedisChannelLayer(BaseChannelLayer):
         For a list of channel names, bucket each one to a dict keyed by the
         connection index
         """
-        channel_to_connection = defaultdict(list)
+        channel_to_connection = collections.defaultdict(list)
         for channel_name in channel_names:
             channel_key = self.prefix + channel_name
             channel_to_connection[self.consistent_hash(channel_name)].append(channel_key)
