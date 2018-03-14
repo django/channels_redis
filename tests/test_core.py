@@ -244,7 +244,7 @@ async def test_groups_multiple_hosts_performance(
 
     channels = []
     for i in range(1, num_channels):
-        channel = await channel_layer.new_channel(prefix="channel%" % i)
+        channel = await channel_layer.new_channel(prefix="channel%s" % i)
         await channel_layer.group_add("test-group", channel)
         channels.append(channel)
 
