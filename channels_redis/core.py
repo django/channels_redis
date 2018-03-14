@@ -82,9 +82,15 @@ class RedisChannelLayer(BaseChannelLayer):
         # Decode each hosts entry into a kwargs dict
         result = []
         for entry in hosts:
-            result.append({
-                "address": entry,
-            })
+            if len(entry) == 3:
+                result.append({
+                    "address": entry[:2],
+                    "db": entry[2]
+                })
+            else:
+                result.append({
+                    "address": entry,
+                })
         return result
 
     def _setup_encryption(self, symmetric_encryption_keys):
@@ -155,12 +161,21 @@ class RedisChannelLayer(BaseChannelLayer):
                 # Wait on the receive buffer's contents
                 # TODO: Two coroutines rather than a poll
                 while True:
-                    if self.receive_buffer.get(channel, None):
-                        message = self.receive_buffer[channel][0]
-                        if len(self.receive_buffer[channel]) == 1:
-                            del self.receive_buffer[channel]
+
+                    messages = self.receive_buffer.get(channel, None)
+                    receive_buffer_key = channel
+                    if not messages:
+                        messages = self.receive_buffer.get(real_channel, None)
+                        receive_buffer_key = real_channel
+
+                    if messages:
+                        message = messages[0]
+                        if len(self.receive_buffer[receive_buffer_key]) == 1:
+                            del self.receive_buffer[receive_buffer_key]
                         else:
-                            self.receive_buffer[channel] = self.receive_buffer[channel][1:]
+                            self.receive_buffer[receive_buffer_key] = (
+                                self.receive_buffer[receive_buffer_key][1:]
+                            )
                         return message
                     else:
                         # See if we need to propagate a dead receiver exception
@@ -188,6 +203,8 @@ class RedisChannelLayer(BaseChannelLayer):
                 real_channel, message = await self.receive_single(general_channel)
                 self.receive_buffer.setdefault(real_channel, []).append(message)
                 if real_channel == specific_channel:
+                    return
+                elif specific_channel.startswith(real_channel):
                     return
 
     def check_receive_lock(self):
@@ -348,8 +365,10 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         channel_to_connection = collections.defaultdict(list)
         for channel_name in channel_names:
-            channel_key = self.prefix + channel_name
-            channel_to_connection[self.consistent_hash(channel_name)].append(channel_key)
+            real_channel = self.non_local_name(channel_name)
+            channel_key = self.prefix + real_channel
+            idx = self.consistent_hash(real_channel)
+            channel_to_connection[idx].append(channel_key)
         return channel_to_connection
 
     def _group_key(self, group):
