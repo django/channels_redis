@@ -207,9 +207,9 @@ async def test_groups_multiple_hosts(channel_layer_multiple_hosts):
     Tests advanced group operation with multiple hosts.
     """
     channel_layer = RedisChannelLayer(hosts=MULTIPLE_TEST_HOSTS, capacity=100)
-    channel_name1 = await channel_layer.new_channel(prefix='channel1')
-    channel_name2 = await channel_layer.new_channel(prefix='channel2')
-    channel_name3 = await channel_layer.new_channel(prefix='channel3')
+    channel_name1 = await channel_layer.new_channel(prefix="channel1")
+    channel_name2 = await channel_layer.new_channel(prefix="channel2")
+    channel_name3 = await channel_layer.new_channel(prefix="channel3")
 
     await channel_layer.group_add("test-group", channel_name1)
     await channel_layer.group_add("test-group", channel_name2)
@@ -244,7 +244,7 @@ async def test_groups_multiple_hosts_performance(
 
     channels = []
     for i in range(1, num_channels):
-        channel = await channel_layer.new_channel(prefix='channel%s' % i)
+        channel = await channel_layer.new_channel(prefix="channel%" % i)
         await channel_layer.group_add("test-group", channel)
         channels.append(channel)
 
