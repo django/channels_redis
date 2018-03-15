@@ -82,15 +82,9 @@ class RedisChannelLayer(BaseChannelLayer):
         # Decode each hosts entry into a kwargs dict
         result = []
         for entry in hosts:
-            if len(entry) == 3:
-                result.append({
-                    "address": entry[:2],
-                    "db": entry[2]
-                })
-            else:
-                result.append({
-                    "address": entry,
-                })
+            result.append({
+                "address": entry,
+            })
         return result
 
     def _setup_encryption(self, symmetric_encryption_keys):

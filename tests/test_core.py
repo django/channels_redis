@@ -10,16 +10,16 @@ from channels_redis.core import ChannelFull, RedisChannelLayer
 TEST_HOSTS = [("localhost", 6379)]
 
 MULTIPLE_TEST_HOSTS = [
-    ("localhost", 6379, 0),
-    ("localhost", 6379, 1),
-    ("localhost", 6379, 2),
-    ("localhost", 6379, 3),
-    ("localhost", 6379, 4),
-    ("localhost", 6379, 5),
-    ("localhost", 6379, 6),
-    ("localhost", 6379, 7),
-    ("localhost", 6379, 8),
-    ("localhost", 6379, 9),
+    "redis://localhost:6379/0",
+    "redis://localhost:6379/1",
+    "redis://localhost:6379/2",
+    "redis://localhost:6379/3",
+    "redis://localhost:6379/4",
+    "redis://localhost:6379/5",
+    "redis://localhost:6379/6",
+    "redis://localhost:6379/7",
+    "redis://localhost:6379/8",
+    "redis://localhost:6379/9",
 ]
 
 
