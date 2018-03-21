@@ -1,3 +1,12 @@
+2.1.1 (2018-03-21)
+------------------
+
+* Fixed bug where receiving messages would hang after a while or at high
+  concurrency levels.
+
+* Fixed bug where the default host values were invalid.
+
+
 2.1.0 (2018-02-21)
 ------------------
 
