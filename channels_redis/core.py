@@ -61,11 +61,14 @@ class RedisChannelLayer(BaseChannelLayer):
         self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
         # Set up any encryption objects
         self._setup_encryption(symmetric_encryption_keys)
+        # Number of coroutines trying to receive right now
+        self.receive_count = 0
+        # Event loop they are trying to receive on
+        self.receive_event_loop = None
+        # Main receive loop running
+        self.receive_loop_task = None
         # Buffered messages by process-local channel name
         self.receive_buffer = {}
-        # Coroutine currently receiving the process-local channel and its loop
-        self.receive_lock = None
-        self.receive_lock_loop = None
 
     def decode_hosts(self, hosts):
         """
@@ -147,14 +150,29 @@ class RedisChannelLayer(BaseChannelLayer):
         if "!" in channel:
             real_channel = self.non_local_name(channel)
             assert real_channel.endswith(self.client_prefix + "!"), "Wrong client prefix"
-            # Launch our own receive loop task
+            # Enter receiving section
             loop = asyncio.get_event_loop()
-            task = loop.create_task(self.receive_loop(channel))
+            self.receive_count += 1
             try:
-                # Wait on the receive buffer's contents
-                # TODO: Two coroutines rather than a poll
+                if self.receive_count == 1:
+                    # If we're the first coroutine in, make a receive loop!
+                    general_channel = self.non_local_name(channel)
+                    self.receive_loop_task = loop.create_task(self.receive_loop(general_channel))
+                    self.receive_event_loop = loop
+                else:
+                    # Otherwise, check our event loop matches
+                    if self.receive_event_loop != loop:
+                        raise RuntimeError("Two event loops are trying to receive() on one channel layer at once!")
+                    if self.receive_loop_task.done():
+                        # Maybe raise an exception from the task
+                        self.receive_loop_task.result()
+                        # Raise our own exception if that failed
+                        raise RuntimeError("Redis receive loop exited early")
+                # Wait for our message to appear
+                # TODO: Queues, not polling
                 while True:
                     if self.receive_buffer.get(channel, None):
+                        # There's a message, pop it off and shorten the buffer
                         message = self.receive_buffer[channel][0]
                         if len(self.receive_buffer[channel]) == 1:
                             del self.receive_buffer[channel]
@@ -163,50 +181,28 @@ class RedisChannelLayer(BaseChannelLayer):
                         return message
                     else:
                         # See if we need to propagate a dead receiver exception
-                        if task.done():
-                            task.result()
+                        if self.receive_loop_task.done():
+                            self.receive_loop_task.result()
                         # Sleep poll
                         await asyncio.sleep(self.local_poll_interval)
             finally:
-                # Shut down the task
-                if not task.done():
-                    task.cancel()
+                self.receive_count -= 1
+                # If we were the last out, stop the receive loop
+                if self.receive_count == 0:
+                    self.receive_loop_task.cancel()
         else:
             # Do a plain direct receive
             return (await self.receive_single(channel))[1]
 
-    async def receive_loop(self, specific_channel):
+    async def receive_loop(self, general_channel):
         """
         Continuous-receiving loop that makes sure something is fetching results
         for the channel passed in.
         """
-        assert "!" in specific_channel, "receive_loop called on non-process-local channel"
-        general_channel = self.non_local_name(specific_channel)
+        assert general_channel.endswith("!"), "receive_loop not called on general queue of process-local channel"
         while True:
-            async with self.check_receive_lock():
-                real_channel, message = await self.receive_single(general_channel)
-                self.receive_buffer.setdefault(real_channel, []).append(message)
-                if real_channel == specific_channel:
-                    return
-
-    def check_receive_lock(self):
-        """
-        Returns the receive lock, doing current-loop checking.
-        """
-        loop = asyncio.get_event_loop()
-        if self.receive_lock_loop is None:
-            # Lock was not yet populated. Populate it!
-            self.receive_lock_loop = loop
-            self.receive_lock = asyncio.Lock()
-        elif self.receive_lock_loop != loop:
-            # See if the lock is locked
-            if self.receive_lock.locked():
-                raise RuntimeError("Two event loops are trying to receive() on one channel layer at once!")
-            # OK, it's probably stale, replace it
-            self.receive_lock_loop = loop
-            self.receive_lock = asyncio.Lock()
-        # Otherwise lock matches our loop, this is fine.
-        return self.receive_lock
+            real_channel, message = await self.receive_single(general_channel)
+            self.receive_buffer.setdefault(real_channel, []).append(message)
 
     async def receive_single(self, channel):
         """
