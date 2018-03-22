@@ -178,9 +178,7 @@ class RedisChannelLayer(BaseChannelLayer):
                         if len(self.receive_buffer[channel]) == 1:
                             del self.receive_buffer[channel]
                         else:
-                            self.receive_buffer[receive_buffer_key] = (
-                                self.receive_buffer[receive_buffer_key][1:]
-                            )
+                            self.receive_buffer[channel] = self.receive_buffer[channel][1:]
                         return message
                     else:
                         # See if we need to propagate a dead receiver exception
@@ -309,48 +307,69 @@ class RedisChannelLayer(BaseChannelLayer):
         Sends a message to the entire group.
         """
         assert self.valid_group_name(group), "Group name not valid"
-
+        # Retrieve list of all channel names
         key = self._group_key(group)
-
-        group_send_lua = """
-            local channels = KEYS
-            local message = ARGV[1]
-            local expiry = ARGV[2]
-            for i,channel in ipairs(channels) do
-                redis.call('RPUSH', channel, message)
-                redis.call('EXPIRE', channel, expiry)
-            end
-        """
-
         async with self.connection(self.consistent_hash(group)) as connection:
             # Discard old channels based on group_expiry
             await connection.zremrangebyscore(key, min=0, max=int(time.time()) - self.group_expiry)
+            # Return current lot
             channel_names = [
                 x.decode("utf8") for x in
                 await connection.zrange(key, 0, -1)
             ]
 
-        channel_to_connection_index = self._map_channel_to_connection(channel_names)
-        for connection_index, channel_names in channel_to_connection_index.items():
-            async with self.connection(connection_index) as connection:
-                await connection.eval(
-                    group_send_lua,
-                    keys=channel_names,
-                    args=[self.serialize(message), int(self.expiry)]
+        connection_to_channels, channel_to_message = (
+            self._map_channel_to_connection(channel_names, message)
+        )
+
+        for connection_index, channel_names in connection_to_channels.items():
+            # Create a LUA script specific for this connection.
+            # Make sure to use the message specific to this channel, it is
+            # stored in channel_to_message dict and contains the
+            # __asgi_channel__ key.
+            group_send_lua = b""
+            for channel_name in channel_names:
+                channel_specific_message = channel_to_message[channel_name]
+
+                # Push the message to the required channel
+                group_send_lua += (
+                    b"redis.call('RPUSH', '%s', '%s')\n"
+                    % (channel_name.encode("utf8"), channel_specific_message)
                 )
 
-    def _map_channel_to_connection(self, channel_names):
+                # Set the message expiry
+                group_send_lua += (
+                    b"redis.call('EXPIRE', '%s', %d)\n"
+                    % (channel_name.encode("utf8"), self.expiry)
+                )
+
+            async with self.connection(connection_index) as connection:
+                await connection.eval(
+                    group_send_lua, keys=channel_names
+                )
+
+    def _map_channel_to_connection(self, channel_names, message):
         """
         For a list of channel names, bucket each one to a dict keyed by the
         connection index
+        Also for each channel create a message specific to that channel, adding
+        the __asgi_channel__ key to the message
         """
-        channel_to_connection = collections.defaultdict(list)
-        for channel_name in channel_names:
-            real_channel = self.non_local_name(channel_name)
-            channel_key = self.prefix + real_channel
-            idx = self.consistent_hash(real_channel)
-            channel_to_connection[idx].append(channel_key)
-        return channel_to_connection
+        connection_to_channels = collections.defaultdict(list)
+        channel_to_message = dict()
+
+        for channel in channel_names:
+
+            if "!" in channel:
+                message = dict(message.items())
+                message["__asgi_channel__"] = channel
+                channel = self.non_local_name(channel)
+            channel_key = self.prefix + channel
+            idx = self.consistent_hash(channel)
+            connection_to_channels[idx].append(channel_key)
+            channel_to_message[channel_key] = self.serialize(message)
+
+        return connection_to_channels, channel_to_message
 
     def _group_key(self, group):
         """

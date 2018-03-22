@@ -172,19 +172,22 @@ async def test_groups_basic(channel_layer):
     Tests basic group operation.
     """
     channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
-    await channel_layer.group_add("test-group", "test-gr-chan-1")
-    await channel_layer.group_add("test-group", "test-gr-chan-2")
-    await channel_layer.group_add("test-group", "test-gr-chan-3")
-    await channel_layer.group_discard("test-group", "test-gr-chan-2")
+    channel_name1 = await channel_layer.new_channel(prefix="test-gr-chan-1")
+    channel_name2 = await channel_layer.new_channel(prefix="test-gr-chan-2")
+    channel_name3 = await channel_layer.new_channel(prefix="test-gr-chan-3")
+    await channel_layer.group_add("test-group", channel_name1)
+    await channel_layer.group_add("test-group", channel_name2)
+    await channel_layer.group_add("test-group", channel_name3)
+    await channel_layer.group_discard("test-group", channel_name2)
     await channel_layer.group_send("test-group", {"type": "message.1"})
     # Make sure we get the message on the two channels that were in
     async with async_timeout.timeout(1):
-        assert (await channel_layer.receive("test-gr-chan-1"))["type"] == "message.1"
-        assert (await channel_layer.receive("test-gr-chan-3"))["type"] == "message.1"
+        assert (await channel_layer.receive(channel_name1))["type"] == "message.1"
+        assert (await channel_layer.receive(channel_name3))["type"] == "message.1"
     # Make sure the removed channel did not get the message
     with pytest.raises(asyncio.TimeoutError):
         async with async_timeout.timeout(1):
-            await channel_layer.receive("test-gr-chan-2")
+            await channel_layer.receive(channel_name2)
 
 
 @pytest.mark.asyncio
@@ -210,7 +213,6 @@ async def test_groups_multiple_hosts(channel_layer_multiple_hosts):
     channel_name1 = await channel_layer.new_channel(prefix="channel1")
     channel_name2 = await channel_layer.new_channel(prefix="channel2")
     channel_name3 = await channel_layer.new_channel(prefix="channel3")
-
     await channel_layer.group_add("test-group", channel_name1)
     await channel_layer.group_add("test-group", channel_name2)
     await channel_layer.group_add("test-group", channel_name3)
@@ -229,8 +231,9 @@ async def test_groups_multiple_hosts(channel_layer_multiple_hosts):
 
 
 @pytest.mark.parametrize("num_channels,timeout", [
-    (100, 5),
-    (1000, 15),
+    (1, 1),  # Edge cases
+    (10, 1),
+    (100, 10),
 ])
 @pytest.mark.asyncio
 async def test_groups_multiple_hosts_performance(
@@ -240,15 +243,15 @@ async def test_groups_multiple_hosts_performance(
     Tests advanced group operation: can send efficiently to multiple channels
     with multiple hosts within a certain timeout
     """
-    channel_layer = RedisChannelLayer(hosts=MULTIPLE_TEST_HOSTS, capacity=3)
+    channel_layer = RedisChannelLayer(hosts=MULTIPLE_TEST_HOSTS, capacity=100)
 
     channels = []
-    for i in range(1, num_channels):
+    for i in range(0, num_channels):
         channel = await channel_layer.new_channel(prefix="channel%s" % i)
         await channel_layer.group_add("test-group", channel)
         channels.append(channel)
 
-    async with async_timeout.timeout(1):
+    async with async_timeout.timeout(timeout):
         await channel_layer.group_send("test-group", {"type": "message.1"})
 
     # Make sure we get the message all the channels
