@@ -231,7 +231,7 @@ async def test_groups_multiple_hosts(channel_layer_multiple_hosts):
 
 
 @pytest.mark.parametrize("num_channels,timeout", [
-    (1, 1),  # Edge cases
+    (1, 1),  # Edge cases - make sure we can send to a single channel
     (10, 1),
     (100, 10),
 ])
