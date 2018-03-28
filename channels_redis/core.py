@@ -6,6 +6,7 @@ import itertools
 import random
 import string
 import time
+import collections
 
 import aioredis
 import msgpack
@@ -68,7 +69,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # Main receive loop running
         self.receive_loop_task = None
         # Buffered messages by process-local channel name
-        self.receive_buffer = {}
+        self.receive_buffer = collections.defaultdict(asyncio.Queue)
 
     def decode_hosts(self, hosts):
         """
@@ -169,22 +170,15 @@ class RedisChannelLayer(BaseChannelLayer):
                         # Raise our own exception if that failed
                         raise RuntimeError("Redis receive loop exited early")
                 # Wait for our message to appear
-                # TODO: Queues, not polling
                 while True:
-                    if self.receive_buffer.get(channel, None):
-                        # There's a message, pop it off and shorten the buffer
-                        message = self.receive_buffer[channel][0]
-                        if len(self.receive_buffer[channel]) == 1:
-                            del self.receive_buffer[channel]
-                        else:
-                            self.receive_buffer[channel] = self.receive_buffer[channel][1:]
-                        return message
-                    else:
+                    try:
+                        return self.receive_buffer[channel].get_nowait()
+                    except asyncio.QueueEmpty:
                         # See if we need to propagate a dead receiver exception
                         if self.receive_loop_task.done():
                             self.receive_loop_task.result()
-                        # Sleep poll
-                        await asyncio.sleep(self.local_poll_interval)
+                    await asyncio.sleep(self.local_poll_interval)
+
             finally:
                 self.receive_count -= 1
                 # If we were the last out, stop the receive loop
@@ -202,7 +196,7 @@ class RedisChannelLayer(BaseChannelLayer):
         assert general_channel.endswith("!"), "receive_loop not called on general queue of process-local channel"
         while True:
             real_channel, message = await self.receive_single(general_channel)
-            self.receive_buffer.setdefault(real_channel, []).append(message)
+            await self.receive_buffer[real_channel].put(message)
 
     async def receive_single(self, channel):
         """
@@ -401,3 +395,4 @@ class RedisChannelLayer(BaseChannelLayer):
 
         async def __aexit__(self, exc_type, exc, tb):
             self.conn.close()
+
