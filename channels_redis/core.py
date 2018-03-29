@@ -1,12 +1,12 @@
 import asyncio
 import base64
 import binascii
+import collections
 import hashlib
 import itertools
 import random
 import string
 import time
-import collections
 
 import aioredis
 import msgpack
