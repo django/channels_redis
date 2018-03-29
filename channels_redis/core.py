@@ -312,15 +312,11 @@ class RedisChannelLayer(BaseChannelLayer):
         async with self.connection(self.consistent_hash(group)) as connection:
             # Discard old channels based on group_expiry
             await connection.zremrangebyscore(key, min=0, max=int(time.time()) - self.group_expiry)
-            # Return current lot
-            channel_names = [
-                x.decode("utf8") for x in
-                await connection.zrange(key, 0, -1)
-            ]
 
-        connection_to_channels, channel_to_message = (
-            self._map_channel_to_connection(channel_names, message)
-        )
+            # Return current lot
+            channel_names = [x.decode("utf8") for x in await connection.zrange(key, 0, -1)]
+
+        connection_to_channels, channel_to_message = self._map_channel_to_connection(channel_names, message)
 
         for connection_index, channel_names in connection_to_channels.items():
             # Create a LUA script specific for this connection.
