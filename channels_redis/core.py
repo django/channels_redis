@@ -29,7 +29,7 @@ class RedisChannelLayer(BaseChannelLayer):
     """
 
     blpop_timeout = 5
-    local_poll_interval = 10
+    queue_get_timeout = 10
 
     def __init__(
         self,
@@ -169,10 +169,14 @@ class RedisChannelLayer(BaseChannelLayer):
                         self.receive_loop_task.result()
                         # Raise our own exception if that failed
                         raise RuntimeError("Redis receive loop exited early")
+
                 # Wait for our message to appear
                 while True:
                     try:
-                        return await asyncio.wait_for(self.receive_buffer[channel].get(), self.local_poll_interval)
+                        message = await asyncio.wait_for(self.receive_buffer[channel].get(), self.queue_get_timeout)
+                        if self.receive_buffer[channel].empty():
+                            del self.receive_buffer[channel]
+                        return message
                     except asyncio.TimeoutError:
                         # See if we need to propagate a dead receiver exception
                         if self.receive_loop_task.done():
