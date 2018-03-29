@@ -327,19 +327,14 @@ class RedisChannelLayer(BaseChannelLayer):
             # Make sure to use the message specific to this channel, it is
             # stored in channel_to_message dict and contains the
             # __asgi_channel__ key.
-            group_send_lua = b""
+            group_send_lua = """
+                for i=1,#KEYS do
+                    redis.call('RPUSH', KEYS[i], ARGV[i])
+                    redis.call('EXPIRE', KEYS[i], %d)
+                end
+            """ % self.expiry
 
-            args = []
-            for i, channel_name in enumerate(channel_names):
-
-                # Append the channel specific message to the args list for the LUA script
-                args.append(channel_to_message[channel_name])
-
-                # Push the message to the required channel, note the + 1 for the ARGV
-                group_send_lua += (b"redis.call('RPUSH', '%s', ARGV[%d])\n" % (channel_name.encode("utf8"), i + 1))
-
-                # Set the message expiry
-                group_send_lua += (b"redis.call('EXPIRE', '%s', %d)\n" % (channel_name.encode("utf8"), self.expiry))
+            args = [channel_to_message[channel_name] for channel_name in channel_names]
 
             async with self.connection(connection_index) as connection:
                 await connection.eval(group_send_lua, keys=channel_names, args=args)
