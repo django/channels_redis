@@ -57,9 +57,12 @@ get to it.
 ``group_expiry``
 ~~~~~~~~~~~~~~~~
 
-Group expiry in seconds. Defaults to ``86400``. Interface servers will drop
-connections after this amount of time; it's recommended you reduce it for a
-healthier system that encourages disconnections.
+Group expiry in seconds. Defaults to ``86400``. Channels will be removed
+from the group after this amount of time; it's recommended you reduce it
+for a healthier system that encourages disconnections. This value should
+not be lower than the relevant timeouts in the interface server (e.g.
+the ``--websocket_timeout`` to `daphne
+<https://github.com/django/daphne>`_).
 
 ``capacity``
 ~~~~~~~~~~~~
