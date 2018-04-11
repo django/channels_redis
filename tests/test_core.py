@@ -244,7 +244,7 @@ async def test_groups_same_prefix(channel_layer):
     await channel_layer.group_add("test-group", channel_name3)
     await channel_layer.group_send("test-group", {"type": "message.1"})
 
-    # Make sure we get the message on the two channels that were in
+    # Make sure we get the message on the channels that were in
     async with async_timeout.timeout(1):
         assert (await channel_layer.receive(channel_name1))["type"] == "message.1"
         assert (await channel_layer.receive(channel_name2))["type"] == "message.1"
