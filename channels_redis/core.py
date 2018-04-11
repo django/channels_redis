@@ -118,7 +118,6 @@ class RedisChannelLayer(BaseChannelLayer):
         # Make sure the message does not contain reserved keys
         assert "__asgi_channel__" not in message
         # If it's a process-local channel, strip off local part and stick full name in message
-
         channel_non_local_name = channel
         if "!" in channel:
             message = dict(message.items())
