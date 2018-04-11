@@ -118,12 +118,14 @@ class RedisChannelLayer(BaseChannelLayer):
         # Make sure the message does not contain reserved keys
         assert "__asgi_channel__" not in message
         # If it's a process-local channel, strip off local part and stick full name in message
+
+        channel_non_local_name = channel
         if "!" in channel:
             message = dict(message.items())
             message["__asgi_channel__"] = channel
-            channel = self.non_local_name(channel)
+            channel_non_local_name = self.non_local_name(channel)
         # Write out message into expiring key (avoids big items in list)
-        channel_key = self.prefix + channel
+        channel_key = self.prefix + channel_non_local_name
         # Pick a connection to the right server - consistent for specific
         # channels, random for general channels
         if "!" in channel:
