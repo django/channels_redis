@@ -312,7 +312,8 @@ class RedisChannelLayer(BaseChannelLayer):
             # Return current lot
             channel_names = [x.decode("utf8") for x in await connection.zrange(key, 0, -1)]
 
-        connection_to_channels, channel_to_message, channel_to_key = self._map_channel_to_connection(channel_names, message)
+        connection_to_channels, channel_to_message, channel_to_key = \
+            self._map_channel_to_connection(channel_names, message)
 
         for connection_index, channel_redis_keys in connection_to_channels.items():
             # Create a LUA script specific for this connection.
@@ -328,7 +329,7 @@ class RedisChannelLayer(BaseChannelLayer):
 
             # We need to filter the messages to keep those related to the connection
             args = [channel_to_message[channel_name] for channel_name in channel_names
-                        if channel_to_key[channel_name] in channel_redis_keys]
+                    if channel_to_key[channel_name] in channel_redis_keys]
 
             async with self.connection(connection_index) as connection:
                 await connection.eval(group_send_lua, keys=channel_redis_keys, args=args)
