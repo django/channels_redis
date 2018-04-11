@@ -230,6 +230,27 @@ async def test_groups_multiple_hosts(channel_layer_multiple_hosts):
             await channel_layer.receive(channel_name2)
 
 
+@pytest.mark.asyncio
+async def test_groups_same_prefix(channel_layer):
+    """
+    Tests group_send with multiple channels with same channel prefix
+    """
+    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
+    channel_name1 = await channel_layer.new_channel(prefix="test-gr-chan")
+    channel_name2 = await channel_layer.new_channel(prefix="test-gr-chan")
+    channel_name3 = await channel_layer.new_channel(prefix="test-gr-chan")
+    await channel_layer.group_add("test-group", channel_name1)
+    await channel_layer.group_add("test-group", channel_name2)
+    await channel_layer.group_add("test-group", channel_name3)
+    await channel_layer.group_send("test-group", {"type": "message.1"})
+
+    # Make sure we get the message on the channels that were in
+    async with async_timeout.timeout(1):
+        assert (await channel_layer.receive(channel_name1))["type"] == "message.1"
+        assert (await channel_layer.receive(channel_name2))["type"] == "message.1"
+        assert (await channel_layer.receive(channel_name3))["type"] == "message.1"
+
+
 @pytest.mark.parametrize("num_channels,timeout", [
     (1, 1),  # Edge cases - make sure we can send to a single channel
     (10, 1),
