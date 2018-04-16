@@ -279,3 +279,28 @@ async def test_groups_multiple_hosts_performance(
     async with async_timeout.timeout(timeout):
         for channel in channels:
             assert (await channel_layer.receive(channel))["type"] == "message.1"
+
+
+@pytest.mark.asyncio
+async def test_group_send_capacity(channel_layer):
+    """
+    Makes sure we dont send messages to groups that are over capacity
+    """
+
+    channel = await channel_layer.new_channel()
+    await channel_layer.group_add("test-group", channel)
+
+    await channel_layer.group_send("test-group", {"type": "message.1"})
+    await channel_layer.group_send("test-group", {"type": "message.2"})
+    await channel_layer.group_send("test-group", {"type": "message.3"})
+    await channel_layer.group_send("test-group", {"type": "message.4"})
+
+    # We should recieve the first 3 messages
+    assert (await channel_layer.receive(channel))["type"] == "message.1"
+    assert (await channel_layer.receive(channel))["type"] == "message.2"
+    assert (await channel_layer.receive(channel))["type"] == "message.3"
+
+    # Make sure we do NOT recieve message 4
+    with pytest.raises(asyncio.TimeoutError):
+        async with async_timeout.timeout(1):
+            await channel_layer.receive(channel)
