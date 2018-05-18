@@ -1,3 +1,9 @@
+2.2.1 (2018-05-17)
+------------------
+
+* Fixed a bug in group_send where it would not work if channel_capacity was set
+
+
 2.2.0 (2018-05-13)
 ------------------
 
