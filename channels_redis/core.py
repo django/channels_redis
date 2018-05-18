@@ -364,7 +364,7 @@ class RedisChannelLayer(BaseChannelLayer):
             channel_key = self.prefix + channel_non_local_name
             idx = self.consistent_hash(channel_non_local_name)
             connection_to_channels[idx].append(channel_key)
-            channel_to_capacity[channel] = self.get_capacity(message)
+            channel_to_capacity[channel] = self.get_capacity(channel)
             channel_to_message[channel] = self.serialize(message)
             # We build a
             channel_to_key[channel] = channel_key

@@ -29,7 +29,11 @@ async def channel_layer():
     """
     Channel layer fixture that flushes automatically.
     """
-    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS, capacity=3)
+    channel_layer = RedisChannelLayer(
+        hosts=TEST_HOSTS,
+        capacity=3,
+        channel_capacity={"tiny": 1},
+    )
     await yield_(channel_layer)
     await channel_layer.flush()
 
