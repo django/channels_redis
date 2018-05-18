@@ -66,6 +66,7 @@ async def test_send_receive(channel_layer):
     assert message["text"] == "Ahoy-hoy!"
 
 
+@pytest.fixture()
 @pytest.mark.parametrize("channel_layer", [None])  # Fixture can't handle sync
 def test_double_receive(channel_layer):
     """
