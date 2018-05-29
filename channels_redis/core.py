@@ -200,7 +200,12 @@ class RedisChannelLayer(BaseChannelLayer):
         assert general_channel.endswith("!"), "receive_loop not called on general queue of process-local channel"
         while True:
             real_channel, message = await self.receive_single(general_channel)
-            await self.receive_buffer[real_channel].put(message)
+
+            if type(real_channel) is list:
+                for channel in real_channel:
+                    await self.receive_buffer[channel].put(message)
+            else:
+                await self.receive_buffer[real_channel].put(message)
 
     async def receive_single(self, channel):
         """
@@ -218,6 +223,7 @@ class RedisChannelLayer(BaseChannelLayer):
         async with self.connection(index) as connection:
             channel_key = self.prefix + channel
             content = None
+
             while content is None:
                 content = await connection.blpop(channel_key, timeout=self.blpop_timeout)
             # Message decode
@@ -225,7 +231,7 @@ class RedisChannelLayer(BaseChannelLayer):
             # TODO: message expiry?
             # If there is a full channel name stored in the message, unpack it.
             if "__asgi_channel__" in message:
-                channel = message["__asgi_channel__"]
+                channel = message["__asgi_channel__"].split(",")
                 del message["__asgi_channel__"]
             return channel, message
 
@@ -310,66 +316,102 @@ class RedisChannelLayer(BaseChannelLayer):
             # Discard old channels based on group_expiry
             await connection.zremrangebyscore(key, min=0, max=int(time.time()) - self.group_expiry)
 
-            # Return current lot
             channel_names = [x.decode("utf8") for x in await connection.zrange(key, 0, -1)]
 
-        connection_to_channels, channel_to_message, channel_to_capacity, channel_to_key = \
+        channel_keys, connection_to_channel_keys, channel_keys_to_message, channel_keys_to_capacity = \
             self._map_channel_to_connection(channel_names, message)
 
-        for connection_index, channel_redis_keys in connection_to_channels.items():
+        for connection_index, channel_redis_keys in connection_to_channel_keys.items():
+
             # Create a LUA script specific for this connection.
             # Make sure to use the message specific to this channel, it is
             # stored in channel_to_message dict and contains the
             # __asgi_channel__ key.
+
             group_send_lua = """
-                for i=1,#KEYS do
-                    if redis.call('LLEN', KEYS[i]) < tonumber(ARGV[i + #KEYS]) then
-                        redis.call('RPUSH', KEYS[i], ARGV[i])
-                        redis.call('EXPIRE', KEYS[i], %d)
+                    for i=1,#KEYS do
+                        if redis.call('LLEN', KEYS[i]) < tonumber(ARGV[i + #KEYS]) then
+                            redis.call('RPUSH', KEYS[i], ARGV[i])
+                            redis.call('EXPIRE', KEYS[i], %d)
+                        end
                     end
-                end
-            """ % self.expiry
+                    """ % self.expiry
 
             # We need to filter the messages to keep those related to the connection
-            args = [channel_to_message[channel_name] for channel_name in channel_names
-                    if channel_to_key[channel_name] in channel_redis_keys]
+            args = [channel_keys_to_message[channel_key] for channel_key in channel_keys
+                    if channel_key in channel_redis_keys]
 
             # We need to send the capacity for each channel
-            args += [channel_to_capacity[channel_name] for channel_name in channel_names
-                    if channel_to_key[channel_name] in channel_redis_keys]
+            args += [channel_keys_to_capacity[channel_key] for channel_key in channel_keys
+                    if channel_key in channel_redis_keys]
 
+            # channel_keys does not contain a single redis key more than once
             async with self.connection(connection_index) as connection:
                 await connection.eval(group_send_lua, keys=channel_redis_keys, args=args)
 
     def _map_channel_to_connection(self, channel_names, message):
         """
-        For a list of channel names, bucket each one to a dict keyed by the
+        For a list of channel names, get the list of their redis keys(no repeated entries),
+
+        And also then for a list of those redis keys bucket each one to a dict keyed by the
         connection index
-        Also for each channel create a message specific to that channel, adding
-        the __asgi_channel__ key to the message
-        We also return a mapping from channel names to their corresponding Redis
-        keys, and a mapping of channels to their capacity
+
+        Also for each unique channel redis key create a message specific to that redis key, by adding
+        the comma separated string of channels which maps to that particular redis key
+        in __asgi_channel__ key to the message
+
+        Also returns a mapping of channels keys to their capacity
         """
-        connection_to_channels = collections.defaultdict(list)
-        channel_to_message = dict()
-        channel_to_capacity = dict()
-        channel_to_key = dict()
 
+        # List of unique redis keys of channels in channel_names
+        channel_keys = list()
+        # Connection dict keyed by index to list of redis keys mapped on that index
+        connection_to_channel_keys = collections.defaultdict(list)
+        # Message dict maps redis key to the message that needs to be send on that key
+        channel_key_to_message = dict()
+        # Channel key mapped to its capacity
+        channel_key_to_capacity = dict()
+
+        # For each channel
         for channel in channel_names:
-            channel_non_local_name = channel
-            if "!" in channel:
-                message = dict(message.items())
-                message["__asgi_channel__"] = channel
-                channel_non_local_name = self.non_local_name(channel)
-            channel_key = self.prefix + channel_non_local_name
-            idx = self.consistent_hash(channel_non_local_name)
-            connection_to_channels[idx].append(channel_key)
-            channel_to_capacity[channel] = self.get_capacity(channel)
-            channel_to_message[channel] = self.serialize(message)
-            # We build a
-            channel_to_key[channel] = channel_key
 
-        return connection_to_channels, channel_to_message, channel_to_capacity, channel_to_key
+            channel_non_local_name = channel
+
+            if "!" in channel:
+                channel_non_local_name = self.non_local_name(channel)
+
+            # Get its redis key
+            channel_key = self.prefix + channel_non_local_name
+
+            # If redis key for this channel is not in channel_keys i.e we have not come across it yet
+            if channel_key not in channel_keys:
+                # Add redis key to channel_keys and get the index of connection corresponding to that channel key
+                # Channels with same channel_keys will have same index.
+                # Connection dict will also not have same redis key more than one in the list mapped to one index
+                channel_keys.append(channel_key)
+                idx = self.consistent_hash(channel_non_local_name)
+                connection_to_channel_keys[idx].append(channel_key)
+
+            # Is this redis key occuring for the first time?
+            if channel_key not in channel_key_to_message.keys():
+                # Create a new message add the current channel to __asgi_channel__
+                message = dict(message.items())
+                message["__asgi_channel__"] = [channel]
+                channel_key_to_message[channel_key] = message
+                # Map redis key to capacity
+                channel_key_to_capacity[channel_key] = self.get_capacity(channel)
+            else:
+                # Another channel with the same redis key found. append it to the value at '__asgi__channel__' .
+                channel_key_to_message[channel_key]["__asgi_channel__"].append(channel)
+
+        # For each redis key
+        for key in channel_keys:
+            # Convert the list stored at that redis key at "__asgi_channel__" into a comma separated string of channels
+            # And serialize the message
+            channel_key_to_message[key]["__asgi_channel__"] = ",".join(channel_key_to_message[key]["__asgi_channel__"])
+            channel_key_to_message[key] = self.serialize(channel_key_to_message[key])
+
+        return channel_keys, connection_to_channel_keys, channel_key_to_message, channel_key_to_capacity
 
     def _group_key(self, group):
         """
@@ -439,7 +481,6 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Async context manager for connections
         """
-
         def __init__(self, kwargs):
             self.kwargs = kwargs
 
