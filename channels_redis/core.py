@@ -382,9 +382,8 @@ class RedisChannelLayer(BaseChannelLayer):
 
         1. list of their redis keys bucket each one to a dict keyed by the connection index
 
-        2. for each unique channel redis key create a message specific to that redis key, by adding
-           the comma separated string of channels which maps to that particular redis key
-           in __asgi_channel__ key to the message
+        2. for each unique channel redis key create a serialized message specific to that redis key, by adding
+           the list of channels mapped to that redis key in __asgi_channel__ key to the message
 
         3. returns a mapping of redis channels keys to their capacity
         """
