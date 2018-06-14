@@ -15,6 +15,81 @@ from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
 
 
+class ConnectionPool:
+    """
+    Connection pool manager for the channel layer.
+
+    It manages a set of connections for the given host specification and
+    taking into account asyncio event loops.
+    """
+
+    def __init__(self, host):
+        self.host = host
+        self.conn_map = {}
+        self.in_use = {}
+
+    def _ensure_loop(self, loop):
+        """
+        Get connection list for the specified loop.
+        """
+        if loop is None:
+            loop = asyncio.get_event_loop()
+
+        if loop not in self.conn_map:
+            self.conn_map[loop] = []
+
+        return self.conn_map[loop], loop
+
+    async def pop(self, loop=None):
+        """
+        Get a connection for the given identifier and loop.
+        """
+        conns, loop = self._ensure_loop(loop)
+        if not conns:
+            conns.append(await aioredis.create_redis(**self.host, loop=loop))
+        conn = conns.pop()
+        self.in_use[conn] = loop
+        return conn
+
+    def push(self, conn):
+        """
+        Return a connection to the pool.
+        """
+        loop = self.in_use[conn]
+        del self.in_use[conn]
+        conns, _ = self._ensure_loop(loop)
+        conns.append(conn)
+
+    def conn_error(self, conn):
+        """
+        Handle a connection that produced an error.
+        """
+        conn.close()
+        del self.in_use[conn]
+
+    def reset(self):
+        """
+        Clear all connections from the pool.
+        """
+        self.conn_map = {}
+        self.in_use = {}
+
+    async def close(self):
+        """
+        Close all connections owned by the pool.
+        """
+        conn_map = self.conn_map
+        in_use = self.in_use
+        self.reset()
+        for conns in conn_map.values():
+            for conn in conns:
+                conn.close()
+                await conn.wait_closed()
+        for conn in in_use:
+            conn.close()
+            await conn.wait_closed()
+
+
 class UnsupportedRedis(Exception):
     pass
 
@@ -48,12 +123,11 @@ class RedisChannelLayer(BaseChannelLayer):
         self.channel_capacity = self.compile_capacities(channel_capacity or {})
         self.prefix = prefix
         assert isinstance(self.prefix, str), "Prefix must be unicode"
-        # Cached redis connection pools and the event loop they are from
-        self.pools = {}
-        self.pools_loop = None
         # Configure the host objects
         self.hosts = self.decode_hosts(hosts)
         self.ring_size = len(self.hosts)
+        # Cached redis connection pools and the event loop they are from
+        self.pools = [ConnectionPool(host) for host in self.hosts]
         # Normal channels choose a host index by cycling through the available hosts
         self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
@@ -270,6 +344,15 @@ class RedisChannelLayer(BaseChannelLayer):
                     keys=[],
                     args=[self.prefix + "*"]
                 )
+        # Now clear the pools as well
+        await self.close_pools()
+
+    async def close_pools(self):
+        """
+        Close all connections in the event loop pools.
+        """
+        for pool in self.pools:
+            await pool.close()
 
     ### Groups extension ###
 
@@ -487,18 +570,22 @@ class RedisChannelLayer(BaseChannelLayer):
         if not 0 <= index < self.ring_size:
             raise ValueError("There are only %s hosts - you asked for %s!" % (self.ring_size, index))
         # Make a context manager
-        return self.ConnectionContextManager(self.hosts[index])
+        return self.ConnectionContextManager(self.pools[index])
 
     class ConnectionContextManager:
         """
         Async context manager for connections
         """
-        def __init__(self, kwargs):
-            self.kwargs = kwargs
+        def __init__(self, pool):
+            self.pool = pool
 
         async def __aenter__(self):
-            self.conn = await aioredis.create_redis(**self.kwargs)
+            self.conn = await self.pool.pop()
             return self.conn
 
         async def __aexit__(self, exc_type, exc, tb):
-            self.conn.close()
+            if exc:
+                self.pool.conn_error(self.conn)
+            else:
+                self.pool.push(self.conn)
+            self.conn = None
