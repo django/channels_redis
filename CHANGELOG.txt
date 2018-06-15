@@ -1,3 +1,10 @@
+2.2.1.post1 (2018-06-15)
+-----------------------
+
+* Initial release of channels_redis_persist fork. No changes to the upstream
+  code.
+
+
 2.2.1 (2018-05-17)
 ------------------
 
