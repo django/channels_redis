@@ -18,11 +18,11 @@ test_requires = crypto_requires + [
 
 
 setup(
-    name="channels_redis",
+    name="channels_redis_persist",
     version=__version__,
-    url="http://github.com/django/channels_redis/",
-    author="Django Software Foundation",
-    author_email="foundation@djangoproject.com",
+    url="http://github.com/genialis/channels_redis_persist/",
+    author="Genialis, Inc.",
+    author_email="dev-team@genialis.com",
     description="Redis-backed ASGI channel layer implementation",
     long_description=readme,
     license="BSD",
