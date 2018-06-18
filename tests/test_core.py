@@ -73,19 +73,28 @@ def test_double_receive(channel_layer):
     process-local channel names.
     """
     channel_layer = RedisChannelLayer(hosts=TEST_HOSTS, capacity=3)
+
+    # Aioredis connections can't be used from different event loops, so
+    # send and close need to be done in the same async_to_sync call.
+    async def send_and_close(*args, **kwargs):
+        await channel_layer.send(*args, **kwargs)
+        await channel_layer.close_pools()
+
     channel_name_1 = async_to_sync(channel_layer.new_channel)()
     channel_name_2 = async_to_sync(channel_layer.new_channel)()
-    async_to_sync(channel_layer.send)(channel_name_1, {"type": "test.message.1"})
-    async_to_sync(channel_layer.send)(channel_name_2, {"type": "test.message.2"})
+    async_to_sync(send_and_close)(channel_name_1, {"type": "test.message.1"})
+    async_to_sync(send_and_close)(channel_name_2, {"type": "test.message.2"})
 
     # Make things to listen on the loops
     async def listen1():
         message = await channel_layer.receive(channel_name_1)
         assert message["type"] == "test.message.1"
+        await channel_layer.close_pools()
 
     async def listen2():
         message = await channel_layer.receive(channel_name_2)
         assert message["type"] == "test.message.2"
+        await channel_layer.close_pools()
 
     # Run them inside threads
     async_to_sync(listen2)()
@@ -148,6 +157,7 @@ async def test_multi_send_receive(channel_layer):
     assert (await channel_layer.receive("test-channel-3"))["type"] == "message.1"
     assert (await channel_layer.receive("test-channel-3"))["type"] == "message.2"
     assert (await channel_layer.receive("test-channel-3"))["type"] == "message.3"
+    await channel_layer.flush()
 
 
 @pytest.mark.asyncio
@@ -192,6 +202,7 @@ async def test_groups_basic(channel_layer):
     with pytest.raises(asyncio.TimeoutError):
         async with async_timeout.timeout(1):
             await channel_layer.receive(channel_name2)
+    await channel_layer.flush()
 
 
 @pytest.mark.asyncio
@@ -206,6 +217,7 @@ async def test_groups_channel_full(channel_layer):
     await channel_layer.group_send("test-group", {"type": "message.1"})
     await channel_layer.group_send("test-group", {"type": "message.1"})
     await channel_layer.group_send("test-group", {"type": "message.1"})
+    await channel_layer.flush()
 
 
 @pytest.mark.asyncio
@@ -233,6 +245,8 @@ async def test_groups_multiple_hosts(channel_layer_multiple_hosts):
         async with async_timeout.timeout(1):
             await channel_layer.receive(channel_name2)
 
+    await channel_layer.flush()
+
 
 @pytest.mark.asyncio
 async def test_groups_same_prefix(channel_layer):
@@ -253,6 +267,8 @@ async def test_groups_same_prefix(channel_layer):
         assert (await channel_layer.receive(channel_name1))["type"] == "message.1"
         assert (await channel_layer.receive(channel_name2))["type"] == "message.1"
         assert (await channel_layer.receive(channel_name3))["type"] == "message.1"
+
+    await channel_layer.flush()
 
 
 @pytest.mark.parametrize("num_channels,timeout", [
@@ -283,6 +299,8 @@ async def test_groups_multiple_hosts_performance(
     async with async_timeout.timeout(timeout):
         for channel in channels:
             assert (await channel_layer.receive(channel))["type"] == "message.1"
+
+    await channel_layer.flush()
 
 
 @pytest.mark.asyncio
