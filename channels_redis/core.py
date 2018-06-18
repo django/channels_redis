@@ -104,7 +104,6 @@ class RedisChannelLayer(BaseChannelLayer):
     """
 
     blpop_timeout = 5
-    queue_get_timeout = 10
 
     def __init__(
         self,
@@ -138,10 +137,11 @@ class RedisChannelLayer(BaseChannelLayer):
         self._setup_encryption(symmetric_encryption_keys)
         # Number of coroutines trying to receive right now
         self.receive_count = 0
+        # The receiving token queue
+        # Whoever holds its tokens can receive from a local channel
+        self.receive_tokens = None
         # Event loop they are trying to receive on
         self.receive_event_loop = None
-        # Main receive loop running
-        self.receive_loop_task = None
         # Buffered messages by process-local channel name
         self.receive_buffer = collections.defaultdict(asyncio.Queue)
 
@@ -234,54 +234,43 @@ class RedisChannelLayer(BaseChannelLayer):
             self.receive_count += 1
             try:
                 if self.receive_count == 1:
-                    # If we're the first coroutine in, make a receive loop!
-                    general_channel = self.non_local_name(channel)
-                    self.receive_loop_task = loop.create_task(self.receive_loop(general_channel))
+                    # If we're the first coroutine in, create the sharing token!
+                    self.receive_tokens = asyncio.Queue()
+                    self.receive_tokens.put_nowait(True)
                     self.receive_event_loop = loop
                 else:
                     # Otherwise, check our event loop matches
                     if self.receive_event_loop != loop:
                         raise RuntimeError("Two event loops are trying to receive() on one channel layer at once!")
-                    if self.receive_loop_task.done():
-                        # Maybe raise an exception from the task
-                        self.receive_loop_task.result()
-                        # Raise our own exception if that failed
-                        raise RuntimeError("Redis receive loop exited early")
 
                 # Wait for our message to appear
-                while True:
+                while self.receive_buffer[channel].empty():
+                    token = await self.receive_tokens.get()
                     try:
-                        message = await asyncio.wait_for(self.receive_buffer[channel].get(), self.queue_get_timeout)
-                        if self.receive_buffer[channel].empty():
-                            del self.receive_buffer[channel]
-                        return message
-                    except asyncio.TimeoutError:
-                        # See if we need to propagate a dead receiver exception
-                        if self.receive_loop_task.done():
-                            self.receive_loop_task.result()
+                        message_channel, message = await self.receive_single(real_channel)
+                        if type(message_channel) is list:
+                            for chan in message_channel:
+                                await self.receive_buffer[chan].put(message)
+                        else:
+                            await self.receive_buffer[message_channel].put(message)
+                    finally:
+                        await self.receive_tokens.put(token)
+
+                # We know there's a message available, because there
+                # couldn't have been any interruption between empty() and here
+                message = self.receive_buffer[channel].get_nowait()
+                if self.receive_buffer[channel].empty():
+                    del self.receive_buffer[channel]
+                return message
 
             finally:
                 self.receive_count -= 1
                 # If we were the last out, stop the receive loop
                 if self.receive_count == 0:
-                    self.receive_loop_task.cancel()
+                    self.receive_tokens = None
         else:
             # Do a plain direct receive
             return (await self.receive_single(channel))[1]
-
-    async def receive_loop(self, general_channel):
-        """
-        Continuous-receiving loop that makes sure something is fetching results
-        for the channel passed in.
-        """
-        assert general_channel.endswith("!"), "receive_loop not called on general queue of process-local channel"
-        while True:
-            real_channel, message = await self.receive_single(general_channel)
-            if type(real_channel) is list:
-                for channel in real_channel:
-                    await self.receive_buffer[channel].put(message)
-            else:
-                await self.receive_buffer[real_channel].put(message)
 
     async def receive_single(self, channel):
         """
