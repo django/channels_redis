@@ -1,3 +1,11 @@
+2.2.1.post2 (2018-06-20)
+-----------------------
+
+* Implement a connection pool class so that connections can be reused
+* Fix event loop handling in the tests
+* Change process-local message receiving to avoid race conditions
+
+
 2.2.1.post1 (2018-06-15)
 -----------------------
 
