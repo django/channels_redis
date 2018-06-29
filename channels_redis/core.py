@@ -137,9 +137,8 @@ class RedisChannelLayer(BaseChannelLayer):
         self._setup_encryption(symmetric_encryption_keys)
         # Number of coroutines trying to receive right now
         self.receive_count = 0
-        # The receiving token queue
-        # Whoever holds its tokens can receive from a local channel
-        self.receive_tokens = None
+        # The receive lock
+        self.receive_lock = None
         # Event loop they are trying to receive on
         self.receive_event_loop = None
         # Buffered messages by process-local channel name
@@ -234,9 +233,8 @@ class RedisChannelLayer(BaseChannelLayer):
             self.receive_count += 1
             try:
                 if self.receive_count == 1:
-                    # If we're the first coroutine in, create the sharing token!
-                    self.receive_tokens = asyncio.Queue()
-                    self.receive_tokens.put_nowait(True)
+                    # If we're the first coroutine in, create the receive lock!
+                    self.receive_lock = asyncio.Lock()
                     self.receive_event_loop = loop
                 else:
                     # Otherwise, check our event loop matches
@@ -244,30 +242,78 @@ class RedisChannelLayer(BaseChannelLayer):
                         raise RuntimeError("Two event loops are trying to receive() on one channel layer at once!")
 
                 # Wait for our message to appear
+                message = None
                 while self.receive_buffer[channel].empty():
-                    token = await self.receive_tokens.get()
+                    tasks = [self.receive_lock.acquire(), self.receive_buffer[channel].get()]
+                    tasks = [asyncio.ensure_future(task) for task in tasks]
                     try:
-                        message_channel, message = await self.receive_single(real_channel)
-                        if type(message_channel) is list:
-                            for chan in message_channel:
-                                await self.receive_buffer[chan].put(message)
+                        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                        for task in pending:
+                            # Cancel all pending tasks.
+                            task.cancel()
+                    except asyncio.CancelledError:
+                        # Ensure all tasks are cancelled if we are cancelled.
+                        # Also see: https://bugs.python.org/issue23859
+                        for task in tasks:
+                            task.cancel()
+
+                        raise
+
+                    message, token, exception = None, None, None
+                    for task in done:
+                        try:
+                            result = task.result()
+                        except Exception as error:  # NOQA
+                            # We should not propagate exceptions immediately as otherwise this may cause
+                            # the lock to be held and never be released.
+                            exception = error
+                            continue
+
+                        if result is True:
+                            token = result
                         else:
-                            await self.receive_buffer[message_channel].put(message)
-                    finally:
-                        await self.receive_tokens.put(token)
+                            assert isinstance(result, dict)
+                            message = result
+
+                    if message or exception:
+                        if token:
+                            # We will not be receving as we already have the message.
+                            self.receive_lock.release()
+
+                        if exception:
+                            raise exception
+                        else:
+                            break
+                    else:
+                        assert token
+
+                        # We hold the receive lock, receive and then release it.
+                        try:
+                            message_channel, message = await self.receive_single(real_channel)
+                            if type(message_channel) is list:
+                                for chan in message_channel:
+                                    await self.receive_buffer[chan].put(message)
+                            else:
+                                await self.receive_buffer[message_channel].put(message)
+                            message = None
+                        finally:
+                            self.receive_lock.release()
 
                 # We know there's a message available, because there
                 # couldn't have been any interruption between empty() and here
-                message = self.receive_buffer[channel].get_nowait()
+                if message is None:
+                    message = self.receive_buffer[channel].get_nowait()
+
                 if self.receive_buffer[channel].empty():
                     del self.receive_buffer[channel]
                 return message
 
             finally:
                 self.receive_count -= 1
-                # If we were the last out, stop the receive loop
+                # If we were the last out, drop the receive lock
                 if self.receive_count == 0:
-                    self.receive_tokens = None
+                    assert not self.receive_lock.locked()
+                    self.receive_lock = None
         else:
             # Do a plain direct receive
             return (await self.receive_single(channel))[1]
