@@ -90,6 +90,42 @@ class ConnectionPool:
             await conn.wait_closed()
 
 
+class ChannelLock:
+    """
+    Helper class for per-channel locking.
+
+    Once a lock is released and has no waiters, it will also be deleted,
+    to mitigate multi-event loop problems.
+    """
+
+    def __init__(self):
+        self.locks = collections.defaultdict(asyncio.Lock)
+        self.wait_counts = collections.defaultdict(int)
+
+    async def acquire(self, channel):
+        """
+        Acquire the lock for the given channel.
+        """
+        self.wait_counts[channel] += 1
+        return await self.locks[channel].acquire()
+
+    def locked(self, channel):
+        """
+        Return ``True`` if the lock for the given channel is acquired.
+        """
+        return self.locks[channel].locked()
+
+    def release(self, channel):
+        """
+        Release the lock for the given channel.
+        """
+        self.locks[channel].release()
+        self.wait_counts[channel] -= 1
+        if self.wait_counts[channel] < 1:
+            del self.locks[channel]
+            del self.wait_counts[channel]
+
+
 class UnsupportedRedis(Exception):
     pass
 
@@ -103,7 +139,7 @@ class RedisChannelLayer(BaseChannelLayer):
     encryption are provided.
     """
 
-    blpop_timeout = 5
+    brpop_timeout = 5
 
     def __init__(
         self,
@@ -143,6 +179,11 @@ class RedisChannelLayer(BaseChannelLayer):
         self.receive_event_loop = None
         # Buffered messages by process-local channel name
         self.receive_buffer = collections.defaultdict(asyncio.Queue)
+        # Detached channel cleanup tasks
+        self.receive_cleaners = []
+        # Per-channel cleanup locks to prevent a receive starting and moving
+        # a message back into the main queue before its cleanup has completed
+        self.receive_clean_locks = ChannelLock()
 
     def decode_hosts(self, hosts):
         """
@@ -213,8 +254,49 @@ class RedisChannelLayer(BaseChannelLayer):
             if await connection.llen(channel_key) >= self.get_capacity(channel):
                 raise ChannelFull()
             # Push onto the list then set it to expire in case it's not consumed
-            await connection.rpush(channel_key, self.serialize(message))
+            await connection.lpush(channel_key, self.serialize(message))
             await connection.expire(channel_key, int(self.expiry))
+
+    def _backup_channel_name(self, channel):
+        """
+        Construct the key used as a backup queue for the given channel.
+        """
+        return channel + "$inflight"
+
+    async def _brpop_with_clean(self, index, channel, timeout):
+        """
+        Perform a Redis BRPOP and manage the backup processing queue.
+        In case of cancellation, make sure the message is not lost.
+        """
+        # The script will pop messages from the processing queue and push them in front
+        # of the main message queue in the proper order; BRPOP must *not* be called
+        # because that would deadlock the server
+        cleanup_script = """
+            local backed_up = redis.call('LRANGE', ARGV[2], 0, -1)
+            for i = #backed_up, 1, -1 do
+                redis.call('LPUSH', ARGV[1], backed_up[i])
+            end
+            redis.call('DEL', ARGV[2])
+        """
+        backup_queue = self._backup_channel_name(channel)
+        async with self.connection(index) as connection:
+            # Cancellation here doesn't matter, we're not doing anything destructive
+            # and the script executes atomically...
+            await connection.eval(
+                cleanup_script,
+                keys=[],
+                args=[channel, backup_queue]
+            )
+            # ...and it doesn't matter here either, the message will be safe in the backup.
+            return await connection.brpoplpush(channel, backup_queue, timeout=timeout)
+
+    async def _clean_receive_backup(self, index, channel):
+        """
+        Pop the oldest message off the channel backup queue.
+        The result isn't interesting as it was already processed.
+        """
+        async with self.connection(index) as connection:
+            await connection.brpop(self._backup_channel_name(channel))
 
     async def receive(self, channel):
         """
@@ -289,12 +371,15 @@ class RedisChannelLayer(BaseChannelLayer):
 
                         # We hold the receive lock, receive and then release it.
                         try:
+                            # There is no interruption point from when the message is
+                            # unpacked in receive_single to when we get back here, so
+                            # the following lines are essentially atomic.
                             message_channel, message = await self.receive_single(real_channel)
                             if type(message_channel) is list:
                                 for chan in message_channel:
-                                    await self.receive_buffer[chan].put(message)
+                                    self.receive_buffer[chan].put_nowait(message)
                             else:
-                                await self.receive_buffer[message_channel].put(message)
+                                self.receive_buffer[message_channel].put_nowait(message)
                             message = None
                         finally:
                             self.receive_lock.release()
@@ -314,6 +399,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 if self.receive_count == 0:
                     assert not self.receive_lock.locked()
                     self.receive_lock = None
+                    self.receive_event_loop = None
         else:
             # Do a plain direct receive
             return (await self.receive_single(channel))[1]
@@ -330,21 +416,44 @@ class RedisChannelLayer(BaseChannelLayer):
             index = self.consistent_hash(channel)
         else:
             index = next(self._receive_index_generator)
-        # Get that connection and receive off of it
-        async with self.connection(index) as connection:
-            channel_key = self.prefix + channel
-            content = None
 
+        channel_key = self.prefix + channel
+        content = None
+        await self.receive_clean_locks.acquire(channel_key)
+        try:
             while content is None:
-                content = await connection.blpop(channel_key, timeout=self.blpop_timeout)
-            # Message decode
-            message = self.deserialize(content[1])
-            # TODO: message expiry?
-            # If there is a full channel name stored in the message, unpack it.
-            if "__asgi_channel__" in message:
-                channel = message["__asgi_channel__"]
-                del message["__asgi_channel__"]
-            return channel, message
+                # Nothing is lost here by cancellations, messages will still
+                # be in the backup queue.
+                content = await self._brpop_with_clean(index, channel_key, timeout=self.brpop_timeout)
+
+            # Fire off a task to clean the message from its backup queue.
+            # Per-channel locking isn't needed, because the backup is a queue
+            # and additionally, we don't care about the order; all processed
+            # messages need to be removed, no matter if the current one is
+            # removed after the next one.
+            # NOTE: Duplicate messages will be received eventually if any
+            # of these cleaners are cancelled.
+            cleaner = asyncio.ensure_future(self._clean_receive_backup(index, channel_key))
+            self.receive_cleaners.append(cleaner)
+
+            def _cleanup_done(cleaner):
+                self.receive_cleaners.remove(cleaner)
+                self.receive_clean_locks.release(channel_key)
+
+            cleaner.add_done_callback(_cleanup_done)
+
+        except Exception as exc:
+            self.receive_clean_locks.release(channel_key)
+            raise
+
+        # Message decode
+        message = self.deserialize(content)
+        # TODO: message expiry?
+        # If there is a full channel name stored in the message, unpack it.
+        if "__asgi_channel__" in message:
+            channel = message["__asgi_channel__"]
+            del message["__asgi_channel__"]
+        return channel, message
 
     async def new_channel(self, prefix="specific"):
         """
@@ -364,6 +473,10 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Deletes all messages and groups on all shards.
         """
+        # Make sure all channel cleaners have finished before removing
+        # keys from under their feet.
+        await self.wait_received()
+
         # Lua deletion script
         delete_prefix = """
             local keys = redis.call('keys', ARGV[1])
@@ -386,8 +499,19 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Close all connections in the event loop pools.
         """
+        # Flush all cleaners, in case somebody just wanted to close the
+        # pools without flushing first.
+        await self.wait_received()
+
         for pool in self.pools:
             await pool.close()
+
+    async def wait_received(self):
+        """
+        Wait for all channel cleanup functions to finish.
+        """
+        if self.receive_cleaners:
+            await asyncio.wait(self.receive_cleaners[:])
 
     ### Groups extension ###
 
@@ -451,7 +575,7 @@ class RedisChannelLayer(BaseChannelLayer):
             group_send_lua = """
                     for i=1,#KEYS do
                         if redis.call('LLEN', KEYS[i]) < tonumber(ARGV[i + #KEYS]) then
-                            redis.call('RPUSH', KEYS[i], ARGV[i])
+                            redis.call('LPUSH', KEYS[i], ARGV[i])
                             redis.call('EXPIRE', KEYS[i], %d)
                         end
                     end
