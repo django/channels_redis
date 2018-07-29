@@ -208,8 +208,8 @@ class RedisChannelLayer(BaseChannelLayer):
                     await self.receive_buffer[channel].put(message)
             else:
                 await self.receive_buffer[real_channel].put(message)
-            # this sleep prevents makes sure that the redis queue is not popped
-            # before the previous message was processed and returned back to the caller
+            # this sleep makes sure that the redis queue is not popped before the
+            # previous message was processed and returned back to the caller
             await  asyncio.sleep(0.0001)
 
     async def receive_single(self, channel):
