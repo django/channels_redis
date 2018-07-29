@@ -208,6 +208,9 @@ class RedisChannelLayer(BaseChannelLayer):
                     await self.receive_buffer[channel].put(message)
             else:
                 await self.receive_buffer[real_channel].put(message)
+            # this sleep prevents makes sure that the redis queue is not popped
+            # before the previous message was processed and returned back to the caller
+            await  asyncio.sleep(0.0001)
 
     async def receive_single(self, channel):
         """
@@ -487,18 +490,34 @@ class RedisChannelLayer(BaseChannelLayer):
         if not 0 <= index < self.ring_size:
             raise ValueError("There are only %s hosts - you asked for %s!" % (self.ring_size, index))
         # Make a context manager
-        return self.ConnectionContextManager(self.hosts[index])
+        return self.ConnectionContextManager(self.hosts[index], index)
 
     class ConnectionContextManager:
         """
         Async context manager for connections
         """
-        def __init__(self, kwargs):
+        # a static member dictionary object (single instance for all the instances of the context)
+        # maps loops and indexes to redis connection pools
+        connection_dict = {}
+
+        def __init__(self, kwargs, index):
             self.kwargs = kwargs
+            self.index = index
 
         async def __aenter__(self):
-            self.conn = await aioredis.create_redis(**self.kwargs)
-            return self.conn
+            # get connection key for the current loop and the given index
+            connection_key = asyncio.get_event_loop().__hash__() + self.index
+
+            # check if a redis connection pool already exists?
+            if connection_key not in self.connection_dict.keys():
+                # if not create a new pool
+                self.connection_dict[connection_key] = await aioredis.create_redis_pool(**self.kwargs)
+
+            # await the pool object and acquire a new connection from a pool
+            # and get the redis context object for the same
+            self.redis_context = await self.connection_dict[connection_key]
+            return self.redis_context.__enter__()
 
         async def __aexit__(self, exc_type, exc, tb):
-            self.conn.close()
+            # release the acquired connection
+            return self.redis_context.__exit__()
