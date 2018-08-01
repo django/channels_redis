@@ -7,6 +7,7 @@ import itertools
 import random
 import string
 import time
+from asyncio import CancelledError
 
 import aioredis
 import msgpack
@@ -191,6 +192,12 @@ class RedisChannelLayer(BaseChannelLayer):
                 # If we were the last out, stop the receive loop
                 if self.receive_count == 0:
                     self.receive_loop_task.cancel()
+                    # as tasks dont get cancelled immediately we will await the task
+                    # in order to make sure it gets cancelled properly
+                    try:
+                        await self.receive_loop_task
+                    except CancelledError:
+                        pass
         else:
             # Do a plain direct receive
             return (await self.receive_single(channel))[1]
@@ -210,7 +217,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 await self.receive_buffer[real_channel].put(message)
             # this sleep makes sure that the redis queue is not popped before the
             # previous message was processed and returned back to the caller
-            await  asyncio.sleep(0.0001)
+            await asyncio.sleep(0.0001)
 
     async def receive_single(self, channel):
         """
