@@ -1,3 +1,17 @@
+2.3.0 (2018-08-16)
+------------------
+
+* Messages to the same process (with the same prefix) are now bundled together
+  in a single message for efficiency.
+
+* Connections to Redis are now kept in a connection pool with significantly
+  improved performance as a result. This change required lists to be changed
+  from oldest-first to newest-first, so immediately after any upgrade,
+  existing messages in Redis will be drained in reverse order until your
+  expiry time (normally 60 seconds) has passed. After this, behaviour will
+  be normal again.
+
+
 2.2.1 (2018-05-17)
 ------------------
 
