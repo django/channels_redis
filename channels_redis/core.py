@@ -168,7 +168,9 @@ class RedisChannelLayer(BaseChannelLayer):
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
-        self.client_prefix = "".join(random.choice(string.ascii_letters) for i in range(8))
+        self.client_prefix = "".join(
+            random.choice(string.ascii_letters) for i in range(8)
+        )
         # Set up any encryption objects
         self._setup_encryption(symmetric_encryption_keys)
         # Number of coroutines trying to receive right now
@@ -195,27 +197,31 @@ class RedisChannelLayer(BaseChannelLayer):
             return [{"address": ("localhost", 6379)}]
         # If they provided just a string, scold them.
         if isinstance(hosts, (str, bytes)):
-            raise ValueError("You must pass a list of Redis hosts, even if there is only one.")
+            raise ValueError(
+                "You must pass a list of Redis hosts, even if there is only one."
+            )
         # Decode each hosts entry into a kwargs dict
         result = []
         for entry in hosts:
             if isinstance(entry, dict):
                 result.append(entry)
             else:
-                result.append({
-                    "address": entry,
-                })
+                result.append({"address": entry})
         return result
 
     def _setup_encryption(self, symmetric_encryption_keys):
         # See if we can do encryption if they asked
         if symmetric_encryption_keys:
             if isinstance(symmetric_encryption_keys, (str, bytes)):
-                raise ValueError("symmetric_encryption_keys must be a list of possible keys")
+                raise ValueError(
+                    "symmetric_encryption_keys must be a list of possible keys"
+                )
             try:
                 from cryptography.fernet import MultiFernet
             except ImportError:
-                raise ValueError("Cannot run with encryption without 'cryptography' installed.")
+                raise ValueError(
+                    "Cannot run with encryption without 'cryptography' installed."
+                )
             sub_fernets = [self.make_fernet(key) for key in symmetric_encryption_keys]
             self.crypter = MultiFernet(sub_fernets)
         else:
@@ -282,11 +288,7 @@ class RedisChannelLayer(BaseChannelLayer):
         async with self.connection(index) as connection:
             # Cancellation here doesn't matter, we're not doing anything destructive
             # and the script executes atomically...
-            await connection.eval(
-                cleanup_script,
-                keys=[],
-                args=[channel, backup_queue]
-            )
+            await connection.eval(cleanup_script, keys=[], args=[channel, backup_queue])
             # ...and it doesn't matter here either, the message will be safe in the backup.
             return await connection.brpoplpush(channel, backup_queue, timeout=timeout)
 
@@ -309,7 +311,9 @@ class RedisChannelLayer(BaseChannelLayer):
         assert self.valid_channel_name(channel)
         if "!" in channel:
             real_channel = self.non_local_name(channel)
-            assert real_channel.endswith(self.client_prefix + "!"), "Wrong client prefix"
+            assert real_channel.endswith(
+                self.client_prefix + "!"
+            ), "Wrong client prefix"
             # Enter receiving section
             loop = asyncio.get_event_loop()
             self.receive_count += 1
@@ -321,15 +325,22 @@ class RedisChannelLayer(BaseChannelLayer):
                 else:
                     # Otherwise, check our event loop matches
                     if self.receive_event_loop != loop:
-                        raise RuntimeError("Two event loops are trying to receive() on one channel layer at once!")
+                        raise RuntimeError(
+                            "Two event loops are trying to receive() on one channel layer at once!"
+                        )
 
                 # Wait for our message to appear
                 message = None
                 while self.receive_buffer[channel].empty():
-                    tasks = [self.receive_lock.acquire(), self.receive_buffer[channel].get()]
+                    tasks = [
+                        self.receive_lock.acquire(),
+                        self.receive_buffer[channel].get(),
+                    ]
                     tasks = [asyncio.ensure_future(task) for task in tasks]
                     try:
-                        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                        done, pending = await asyncio.wait(
+                            tasks, return_when=asyncio.FIRST_COMPLETED
+                        )
                         for task in pending:
                             # Cancel all pending tasks.
                             task.cancel()
@@ -374,7 +385,9 @@ class RedisChannelLayer(BaseChannelLayer):
                             # There is no interruption point from when the message is
                             # unpacked in receive_single to when we get back here, so
                             # the following lines are essentially atomic.
-                            message_channel, message = await self.receive_single(real_channel)
+                            message_channel, message = await self.receive_single(
+                                real_channel
+                            )
                             if type(message_channel) is list:
                                 for chan in message_channel:
                                     self.receive_buffer[chan].put_nowait(message)
@@ -424,7 +437,9 @@ class RedisChannelLayer(BaseChannelLayer):
             while content is None:
                 # Nothing is lost here by cancellations, messages will still
                 # be in the backup queue.
-                content = await self._brpop_with_clean(index, channel_key, timeout=self.brpop_timeout)
+                content = await self._brpop_with_clean(
+                    index, channel_key, timeout=self.brpop_timeout
+                )
 
             # Fire off a task to clean the message from its backup queue.
             # Per-channel locking isn't needed, because the backup is a queue
@@ -433,7 +448,9 @@ class RedisChannelLayer(BaseChannelLayer):
             # removed after the next one.
             # NOTE: Duplicate messages will be received eventually if any
             # of these cleaners are cancelled.
-            cleaner = asyncio.ensure_future(self._clean_receive_backup(index, channel_key))
+            cleaner = asyncio.ensure_future(
+                self._clean_receive_backup(index, channel_key)
+            )
             self.receive_cleaners.append(cleaner)
 
             def _cleanup_done(cleaner):
@@ -442,7 +459,7 @@ class RedisChannelLayer(BaseChannelLayer):
 
             cleaner.add_done_callback(_cleanup_done)
 
-        except Exception as exc:
+        except Exception:
             self.receive_clean_locks.release(channel_key)
             raise
 
@@ -487,11 +504,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # Go through each connection and remove all with prefix
         for i in range(self.ring_size):
             async with self.connection(i) as connection:
-                await connection.eval(
-                    delete_prefix,
-                    keys=[],
-                    args=[self.prefix + "*"]
-                )
+                await connection.eval(delete_prefix, keys=[], args=[self.prefix + "*"])
         # Now clear the pools as well
         await self.close_pools()
 
@@ -526,11 +539,7 @@ class RedisChannelLayer(BaseChannelLayer):
         group_key = self._group_key(group)
         async with self.connection(self.consistent_hash(group)) as connection:
             # Add to group sorted set with creation time as timestamp
-            await connection.zadd(
-                group_key,
-                time.time(),
-                channel,
-            )
+            await connection.zadd(group_key, time.time(), channel)
             # Set expiration to be group_expiry, since everything in
             # it at this point is guaranteed to expire before that
             await connection.expire(group_key, self.group_expiry)
@@ -544,10 +553,7 @@ class RedisChannelLayer(BaseChannelLayer):
         assert self.valid_channel_name(channel), "Channel name not valid"
         key = self._group_key(group)
         async with self.connection(self.consistent_hash(group)) as connection:
-            await connection.zrem(
-                key,
-                channel,
-            )
+            await connection.zrem(key, channel)
 
     async def group_send(self, group, message):
         """
@@ -558,12 +564,17 @@ class RedisChannelLayer(BaseChannelLayer):
         key = self._group_key(group)
         async with self.connection(self.consistent_hash(group)) as connection:
             # Discard old channels based on group_expiry
-            await connection.zremrangebyscore(key, min=0, max=int(time.time()) - self.group_expiry)
+            await connection.zremrangebyscore(
+                key, min=0, max=int(time.time()) - self.group_expiry
+            )
 
-            channel_names = [x.decode("utf8") for x in await connection.zrange(key, 0, -1)]
+            channel_names = [
+                x.decode("utf8") for x in await connection.zrange(key, 0, -1)
+            ]
 
-        connection_to_channel_keys, channel_keys_to_message, channel_keys_to_capacity = \
-            self._map_channel_keys_to_connection(channel_names, message)
+        connection_to_channel_keys, channel_keys_to_message, channel_keys_to_capacity = self._map_channel_keys_to_connection(
+            channel_names, message
+        )
 
         for connection_index, channel_redis_keys in connection_to_channel_keys.items():
 
@@ -572,24 +583,35 @@ class RedisChannelLayer(BaseChannelLayer):
             # stored in channel_to_message dict and contains the
             # __asgi_channel__ key.
 
-            group_send_lua = """
+            group_send_lua = (
+                """
                     for i=1,#KEYS do
                         if redis.call('LLEN', KEYS[i]) < tonumber(ARGV[i + #KEYS]) then
                             redis.call('LPUSH', KEYS[i], ARGV[i])
                             redis.call('EXPIRE', KEYS[i], %d)
                         end
                     end
-                    """ % self.expiry
+                    """
+                % self.expiry
+            )
 
             # We need to filter the messages to keep those related to the connection
-            args = [channel_keys_to_message[channel_key] for channel_key in channel_redis_keys]
+            args = [
+                channel_keys_to_message[channel_key]
+                for channel_key in channel_redis_keys
+            ]
 
             # We need to send the capacity for each channel
-            args += [channel_keys_to_capacity[channel_key] for channel_key in channel_redis_keys]
+            args += [
+                channel_keys_to_capacity[channel_key]
+                for channel_key in channel_redis_keys
+            ]
 
             # channel_keys does not contain a single redis key more than once
             async with self.connection(connection_index) as connection:
-                await connection.eval(group_send_lua, keys=channel_redis_keys, args=args)
+                await connection.eval(
+                    group_send_lua, keys=channel_redis_keys, args=args
+                )
 
     def _map_channel_to_connection(self, channel_names, message):
         """
@@ -619,7 +641,12 @@ class RedisChannelLayer(BaseChannelLayer):
             # We build a
             channel_to_key[channel] = channel_key
 
-        return connection_to_channels, channel_to_message, channel_to_capacity, channel_to_key
+        return (
+            connection_to_channels,
+            channel_to_message,
+            channel_to_capacity,
+            channel_to_key,
+        )
 
     def _map_channel_keys_to_connection(self, channel_names, message):
         """
@@ -665,7 +692,11 @@ class RedisChannelLayer(BaseChannelLayer):
             # Serialize the message stored for each redis key
             channel_key_to_message[key] = self.serialize(channel_key_to_message[key])
 
-        return connection_to_channel_keys, channel_key_to_message, channel_key_to_capacity
+        return (
+            connection_to_channel_keys,
+            channel_key_to_message,
+            channel_key_to_capacity,
+        )
 
     def _group_key(self, group):
         """
@@ -710,6 +741,7 @@ class RedisChannelLayer(BaseChannelLayer):
         Given a single encryption key, returns a Fernet instance using it.
         """
         from cryptography.fernet import Fernet
+
         if isinstance(key, str):
             key = key.encode("utf8")
         formatted_key = base64.urlsafe_b64encode(hashlib.sha256(key).digest())
@@ -727,7 +759,9 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         # Catch bad indexes
         if not 0 <= index < self.ring_size:
-            raise ValueError("There are only %s hosts - you asked for %s!" % (self.ring_size, index))
+            raise ValueError(
+                "There are only %s hosts - you asked for %s!" % (self.ring_size, index)
+            )
         # Make a context manager
         return self.ConnectionContextManager(self.pools[index])
 
@@ -735,6 +769,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Async context manager for connections
         """
+
         def __init__(self, pool):
             self.pool = pool
 

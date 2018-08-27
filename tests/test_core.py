@@ -30,9 +30,7 @@ async def channel_layer():
     Channel layer fixture that flushes automatically.
     """
     channel_layer = RedisChannelLayer(
-        hosts=TEST_HOSTS,
-        capacity=3,
-        channel_capacity={"tiny": 1},
+        hosts=TEST_HOSTS, capacity=3, channel_capacity={"tiny": 1}
     )
     await yield_(channel_layer)
     await channel_layer.flush()
@@ -55,11 +53,7 @@ async def test_send_receive(channel_layer):
     Makes sure we can send a message to a normal channel then receive it.
     """
     await channel_layer.send(
-        "test-channel-1",
-        {
-            "type": "test.message",
-            "text": "Ahoy-hoy!",
-        },
+        "test-channel-1", {"type": "test.message", "text": "Ahoy-hoy!"}
     )
     message = await channel_layer.receive("test-channel-1")
     assert message["type"] == "test.message"
@@ -120,7 +114,9 @@ async def test_send_specific_capacity(channel_layer):
     """
     Makes sure we get ChannelFull when we hit the send capacity on a specific channel
     """
-    custom_channel_layer = RedisChannelLayer(hosts=TEST_HOSTS, capacity=3, channel_capacity={"one": 1})
+    custom_channel_layer = RedisChannelLayer(
+        hosts=TEST_HOSTS, capacity=3, channel_capacity={"one": 1}
+    )
     await custom_channel_layer.send("one", {"type": "test.message"})
     with pytest.raises(ChannelFull):
         await custom_channel_layer.send("one", {"type": "test.message"})
@@ -134,11 +130,7 @@ async def test_process_local_send_receive(channel_layer):
     """
     channel_name = await channel_layer.new_channel()
     await channel_layer.send(
-        channel_name,
-        {
-            "type": "test.message",
-            "text": "Local only please",
-        },
+        channel_name, {"type": "test.message", "text": "Local only please"}
     )
     message = await channel_layer.receive(channel_name)
     assert message["type"] == "test.message"
@@ -271,11 +263,14 @@ async def test_groups_same_prefix(channel_layer):
     await channel_layer.flush()
 
 
-@pytest.mark.parametrize("num_channels,timeout", [
-    (1, 1),  # Edge cases - make sure we can send to a single channel
-    (10, 1),
-    (100, 10),
-])
+@pytest.mark.parametrize(
+    "num_channels,timeout",
+    [
+        (1, 1),  # Edge cases - make sure we can send to a single channel
+        (10, 1),
+        (100, 10),
+    ],
+)
 @pytest.mark.asyncio
 async def test_groups_multiple_hosts_performance(
     channel_layer_multiple_hosts, num_channels, timeout

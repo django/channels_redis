@@ -35,8 +35,5 @@ setup(
         "asgiref~=2.1",
         "channels~=2.0",
     ],
-    extras_require={
-        "cryptography": crypto_requires,
-        "tests": test_requires,
-    },
+    extras_require={"cryptography": crypto_requires, "tests": test_requires},
 )

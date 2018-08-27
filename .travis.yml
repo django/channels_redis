@@ -3,24 +3,34 @@ sudo: false
 language: python
 
 python:
-  - "3.5"
   - "3.6"
+  - "3.5"
 
 services:
   - redis-server
 
 install:
-  - pip install -e .[tests] isort unify flake8
+  - pip install -e .[tests]
   - pip freeze
 
 script:
   - pytest
-  - flake8
-  - isort --check-only --diff --recursive channels_redis tests
-  - unify --check-only --recursive --quote \" channels_redis tests
+
+stages:
+  - lint
+  - test
+  - name: release
+    if: branch = master
 
 jobs:
   include:
+    - stage: lint
+      install: pip install black pyflakes isort
+      script:
+        - pyflakes
+        - black --check .
+        - isort --check-only --diff --recursive channels_redis tests
+
     - stage: release
       script: skip
       deploy:
