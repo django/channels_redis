@@ -27,7 +27,7 @@ jobs:
     - stage: lint
       install: pip install black pyflakes isort
       script:
-        - pyflakes
+        - pyflakes .
         - black --check .
         - isort --check-only --diff --recursive channels_redis tests
 
