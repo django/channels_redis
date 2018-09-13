@@ -31,7 +31,7 @@ setup(
     include_package_data=True,
     install_requires=[
         "aioredis~=1.0",
-        "msgpack~=0.5.0",
+        "msgpack~=0.5.2",
         "asgiref~=2.1",
         "channels~=2.0",
     ],
