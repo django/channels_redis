@@ -7,12 +7,30 @@ import itertools
 import random
 import string
 import time
+import types
 
 import aioredis
 import msgpack
 
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
+
+
+def _wrap_close(loop, pool):
+    """
+    Decorate an event loop's close method with our own.
+    """
+    original_impl = loop.close
+
+    def _wrapper(self, *args, **kwargs):
+        # If the event loop was closed, there's nothing we can do anymore.
+        if not self.is_closed():
+            self.run_until_complete(pool.close_loop(self))
+        # Restore the original close() implementation after we're done.
+        self.close = original_impl
+        return self.close(*args, **kwargs)
+
+    loop.close = types.MethodType(_wrapper, loop)
 
 
 class ConnectionPool:
@@ -36,6 +54,9 @@ class ConnectionPool:
             loop = asyncio.get_event_loop()
 
         if loop not in self.conn_map:
+            # Swap the loop's close method with our own so we get
+            # a chance to do some cleanup.
+            _wrap_close(loop, self)
             self.conn_map[loop] = []
 
         return self.conn_map[loop], loop
@@ -57,8 +78,9 @@ class ConnectionPool:
         """
         loop = self.in_use[conn]
         del self.in_use[conn]
-        conns, _ = self._ensure_loop(loop)
-        conns.append(conn)
+        if loop is not None:
+            conns, _ = self._ensure_loop(loop)
+            conns.append(conn)
 
     def conn_error(self, conn):
         """
@@ -73,6 +95,20 @@ class ConnectionPool:
         """
         self.conn_map = {}
         self.in_use = {}
+
+    async def close_loop(self, loop):
+        """
+        Close all connections owned by the pool on the given loop.
+        """
+        if loop in self.conn_map:
+            for conn in self.conn_map[loop]:
+                conn.close()
+                await conn.wait_closed()
+            del self.conn_map[loop]
+
+        for k, v in self.in_use.items():
+            if v is loop:
+                self.in_use[k] = None
 
     async def close(self):
         """
@@ -732,7 +768,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         if isinstance(value, str):
             value = value.encode("utf8")
-        bigval = binascii.crc32(value) & 0xfff
+        bigval = binascii.crc32(value) & 0xFFF
         ring_divisor = 4096 / float(self.ring_size)
         return int(bigval / ring_divisor)
 
