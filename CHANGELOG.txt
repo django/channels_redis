@@ -1,3 +1,9 @@
+2.3.1 (2018-10-17)
+------------------
+
+* Fix issue with leaking of connections and instability introduced in 2.3.0
+
+
 2.3.0 (2018-08-16)
 ------------------
 
