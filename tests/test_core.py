@@ -321,3 +321,25 @@ async def test_group_send_capacity(channel_layer):
     with pytest.raises(asyncio.TimeoutError):
         async with async_timeout.timeout(1):
             await channel_layer.receive(channel)
+
+
+@pytest.mark.asyncio
+async def test_receive_cancel(channel_layer):
+    """
+    Makes sure we can cancel a receive without blocking
+    """
+    channel_layer = RedisChannelLayer(capacity=10)
+    channel = await channel_layer.new_channel()
+    delay = 0
+    while delay < 0.01:
+        await channel_layer.send(channel, {"type": "test.message", "text": "Ahoy-hoy!"})
+
+        task = asyncio.ensure_future(channel_layer.receive(channel))
+        await asyncio.sleep(delay)
+        task.cancel()
+        delay += 0.001
+
+        try:
+            await asyncio.wait_for(task, None)
+        except asyncio.CancelledError:
+            pass
