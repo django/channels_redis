@@ -384,8 +384,7 @@ class RedisChannelLayer(BaseChannelLayer):
                         # Ensure all tasks are cancelled if we are cancelled.
                         # Also see: https://bugs.python.org/issue23859
                         for task in tasks:
-                            cancelOK = task.cancel()
-                            if not cancelOK:
+                            if not task.cancel():
                                 assert task.done()
                                 if task.result() is True:
                                     self.receive_lock.release()

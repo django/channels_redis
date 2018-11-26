@@ -322,6 +322,7 @@ async def test_group_send_capacity(channel_layer):
         async with async_timeout.timeout(1):
             await channel_layer.receive(channel)
 
+
 @pytest.mark.asyncio
 async def test_receive_cancel(channel_layer):
     """
@@ -331,9 +332,7 @@ async def test_receive_cancel(channel_layer):
     channel = await channel_layer.new_channel()
     delay = 0
     while delay < 0.01:
-        await channel_layer.send(
-            channel, {"type": "test.message", "text": "Ahoy-hoy!"}
-        )
+        await channel_layer.send(channel, {"type": "test.message", "text": "Ahoy-hoy!"})
 
         task = asyncio.ensure_future(channel_layer.receive(channel))
         await asyncio.sleep(delay)
