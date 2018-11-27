@@ -383,6 +383,7 @@ class RedisChannelLayer(BaseChannelLayer):
                     except asyncio.CancelledError:
                         # Ensure all tasks are cancelled if we are cancelled.
                         # Also see: https://bugs.python.org/issue23859
+                        del self.receive_buffer[channel]
                         for task in tasks:
                             if not task.cancel():
                                 assert task.done()
@@ -433,6 +434,9 @@ class RedisChannelLayer(BaseChannelLayer):
                             else:
                                 self.receive_buffer[message_channel].put_nowait(message)
                             message = None
+                        except:
+                            del self.receive_buffer[channel]
+                            raise
                         finally:
                             self.receive_lock.release()
 
