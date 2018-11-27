@@ -1,5 +1,3 @@
-from builtins import BaseException
-
 import asyncio
 import base64
 import binascii
@@ -436,7 +434,7 @@ class RedisChannelLayer(BaseChannelLayer):
                             else:
                                 self.receive_buffer[message_channel].put_nowait(message)
                             message = None
-                        except BaseException:
+                        except:
                             del self.receive_buffer[channel]
                             raise
                         finally:
