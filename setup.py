@@ -29,6 +29,7 @@ setup(
     zip_safe=False,
     packages=find_packages(exclude=["tests"]),
     include_package_data=True,
+    python_requires=">=3.5.2",
     install_requires=[
         "aioredis~=1.0",
         "msgpack~=0.5.2",
