@@ -248,7 +248,7 @@ class BaseRedisChannelLayer(BaseChannelLayer):
         # Add to group sorted set with creation time as timestamp
         connection.zadd(
             group_key,
-            **{channel: time.time()}
+            {channel: time.time()}
         )
         # Set both expiration to be group_expiry, since everything in
         # it at this point is guaranteed to expire before that
