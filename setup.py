@@ -21,7 +21,7 @@ test_requires = crypto_requires + [
     'pytest>=3.0',
     'pytest-django>=3.0',
     'asgi_ipc',
-    'channels>=1.1.0',
+    'channels<2',
     'requests>=2.12',
     'websocket_client>=0.40',
 ]
