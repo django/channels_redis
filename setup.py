@@ -33,8 +33,8 @@ setup(
     install_requires=[
         "aioredis~=1.0",
         "msgpack~=0.6.0",
-        "asgiref~=2.1",
-        "channels~=2.0",
+        "asgiref~=3.0",
+        "channels~=2.2",
     ],
     extras_require={"cryptography": crypto_requires, "tests": test_requires},
 )
