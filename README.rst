@@ -40,6 +40,9 @@ The server(s) to connect to, as either URIs, ``(host, port)`` tuples, or dicts c
 Defaults to ``['localhost', 6379]``. Pass multiple hosts to enable sharding,
 but note that changing the host list will lose some sharded data.
 
+If your server is listening on a UNIX domain socket, you can also use that to connect: ``["unix:///path/to/redis.sock"]``.
+This should be slightly faster than a loopback TCP connection.
+
 ``prefix``
 ~~~~~~~~~~
 
