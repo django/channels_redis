@@ -166,20 +166,11 @@ class UnsupportedRedis(Exception):
     pass
 
 
-class RedisChannelLayer(BaseChannelLayer):
-    """
-    Redis channel layer.
-
-    It routes all messages into remote Redis server. Support for
-    sharding among different Redis installations and message
-    encryption are provided.
-    """
-
+class BaseRedisChannelLayer(BaseChannelLayer):
     brpop_timeout = 5
 
     def __init__(
         self,
-        hosts=None,
         prefix="asgi:",
         expiry=60,
         group_expiry=86400,
@@ -194,19 +185,9 @@ class RedisChannelLayer(BaseChannelLayer):
         self.channel_capacity = self.compile_capacities(channel_capacity or {})
         self.prefix = prefix
         assert isinstance(self.prefix, str), "Prefix must be unicode"
-        # Configure the host objects
-        self.hosts = self.decode_hosts(hosts)
-        self.ring_size = len(self.hosts)
-        # Cached redis connection pools and the event loop they are from
-        self.pools = [ConnectionPool(host) for host in self.hosts]
-        # Normal channels choose a host index by cycling through the available hosts
-        self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
-        self._send_index_generator = itertools.cycle(range(len(self.hosts)))
         # Decide on a unique client prefix to use in ! sections
         # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
-        self.client_prefix = "".join(
-            random.choice(string.ascii_letters) for i in range(8)
-        )
+        self.client_prefix = "".join(random.sample(string.ascii_letters, 8))
         # Set up any encryption objects
         self._setup_encryption(symmetric_encryption_keys)
         # Number of coroutines trying to receive right now
@@ -222,28 +203,6 @@ class RedisChannelLayer(BaseChannelLayer):
         # Per-channel cleanup locks to prevent a receive starting and moving
         # a message back into the main queue before its cleanup has completed
         self.receive_clean_locks = ChannelLock()
-
-    def decode_hosts(self, hosts):
-        """
-        Takes the value of the "hosts" argument passed to the class and returns
-        a list of kwargs to use for the Redis connection constructor.
-        """
-        # If no hosts were provided, return a default value
-        if not hosts:
-            return [{"address": ("localhost", 6379)}]
-        # If they provided just a string, scold them.
-        if isinstance(hosts, (str, bytes)):
-            raise ValueError(
-                "You must pass a list of Redis hosts, even if there is only one."
-            )
-        # Decode each hosts entry into a kwargs dict
-        result = []
-        for entry in hosts:
-            if isinstance(entry, dict):
-                result.append(entry)
-            else:
-                result.append({"address": entry})
-        return result
 
     def _setup_encryption(self, symmetric_encryption_keys):
         # See if we can do encryption if they asked
@@ -790,6 +749,49 @@ class RedisChannelLayer(BaseChannelLayer):
         formatted_key = base64.urlsafe_b64encode(hashlib.sha256(key).digest())
         return Fernet(formatted_key)
 
+
+class RedisChannelLayer(BaseRedisChannelLayer):
+    """
+    Redis channel layer.
+
+    It routes all messages into remote Redis server. Support for
+    sharding among different Redis installations and message
+    encryption are provided.
+    """
+
+    def __init__(self, hosts=None, **kwargs):
+        super(RedisChannelLayer, self).__init__(**kwargs)
+        # Configure the host objects
+        self.hosts = self.decode_hosts(hosts)
+        self.ring_size = len(self.hosts)
+        # Cached redis connection pools and the event loop they are from
+        self.pools = [ConnectionPool(host) for host in self.hosts]
+        # Normal channels choose a host index by cycling through the available hosts
+        self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
+        self._send_index_generator = itertools.cycle(range(len(self.hosts)))
+
+    def decode_hosts(self, hosts):
+        """
+        Takes the value of the "hosts" argument passed to the class and returns
+        a list of kwargs to use for the Redis connection constructor.
+        """
+        # If no hosts were provided, return a default value
+        if not hosts:
+            return [{"address": ("localhost", 6379)}]
+        # If they provided just a string, scold them.
+        if isinstance(hosts, (str, bytes)):
+            raise ValueError(
+                "You must pass a list of Redis hosts, even if there is only one."
+            )
+        # Decode each hosts entry into a kwargs dict
+        result = []
+        for entry in hosts:
+            if isinstance(entry, dict):
+                result.append(entry)
+            else:
+                result.append({"address": entry})
+        return result
+
     def __str__(self):
         return "%s(hosts=%s)" % (self.__class__.__name__, self.hosts)
 
@@ -826,3 +828,80 @@ class RedisChannelLayer(BaseChannelLayer):
             else:
                 self.pool.push(self.conn)
             self.conn = None
+
+
+class SentinelManager:
+    def __init__(self, sentinel_hosts, **kwargs):
+        self.sentinel_hosts = sentinel_hosts
+        self.kwargs = kwargs
+        self.sentinel = None
+        self.masters = {}
+
+    async def get_sentinel(self):
+        if not self.sentinel:
+            self.sentinel = await aioredis.create_sentinel(
+                self.sentinel_hosts, **self.kwargs
+            )
+        return self.sentinel
+
+    async def client(self, service: str):
+        if service not in self.masters:
+            sentinel = await self.get_sentinel()
+            master = sentinel.master_for(service)
+            self.masters[service] = master
+            return master
+        return self.masters[service]
+
+
+class RedisSentinelChannelLayer(BaseRedisChannelLayer):
+    def __init__(self, sentinels=None, services=None, **kwargs):
+        super(RedisSentinelChannelLayer, self).__init__(**kwargs)
+        # Configure Sentinel
+        self.sentinels = sentinels or [("localhost", 26379)]
+        self.sentinel_manager = SentinelManager(self.sentinels)
+        # TODO: Discover services?
+        if not services:
+            raise ValueError("At least one service must be provided")
+        self.services = services
+        self.ring_size = len(services)
+        # Normal channels choose a service index by cycling through
+        # the available services.
+        self._receive_index_generator = itertools.cycle(range(len(self.services)))
+        self._send_index_generator = itertools.cycle(range(len(self.services)))
+
+    def __str__(self):
+        return "{}(sentinels={}, services={})".format(
+            self.__class__.__name__, self.sentinels, self.services
+        )
+
+    ### Connection handling ###
+
+    def connection(self, index):
+        """
+        Returns the correct connection for the index given.
+        Lazily instantiates pools.
+        """
+        # Catch bad indexes
+        if not 0 <= index < self.ring_size:
+            raise ValueError(
+                "There are only %s hosts - you asked for %s!" % (self.ring_size, index)
+            )
+        return self.ConnectionContextManager(
+            self.sentinel_manager, self.services[index]
+        )
+
+    class ConnectionContextManager:
+        def __init__(self, sentinel_manager, service):
+            self.sentinel_manager = sentinel_manager
+            self.service = service
+
+        async def __aenter__(self):
+            self.conn = await self.sentinel_manager.client(self.service)
+            return self.conn
+
+        async def __aexit__(self, exc_type, exc, tb):
+            if exc:
+                # TODO: What now?
+                print("Exception occurred", exc_type, exc)
+            else:
+                print("Context manager exit without exception")
