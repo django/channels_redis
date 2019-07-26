@@ -173,13 +173,13 @@ class ReceiveBuffer:
         self.getters = collections.defaultdict(collections.deque)
         self.buffers = collections.defaultdict(lambda: collections.deque(maxlen=20))
         self.receiver = None
-    
+
     def __bool__(self):
         return bool(self.getters)
-    
+
     def get(self, channel):
         getter = self.loop.create_future()
-        
+
         if channel in self.buffers:
             getter.set_result(self.buffers[channel].popleft())
             if not self.buffers[channel]:
@@ -188,13 +188,15 @@ class ReceiveBuffer:
             getter.channel = channel
             getter.add_done_callback(self._getter_done_prematurely)
             self.getters[channel].append(getter)
-            
+
             # ensure receiver is running
             if not self.receiver:
-                self.receiver = asyncio.ensure_future(self.receiver_factory(self.channel_layer.non_local_name(channel)))
-        
+                self.receiver = asyncio.ensure_future(
+                    self.receiver_factory(self.channel_layer.non_local_name(channel))
+                )
+
         return getter
-    
+
     def _getter_done_prematurely(self, getter):
         channel = getter.channel
         self.getters[channel].remove(getter)
@@ -202,7 +204,7 @@ class ReceiveBuffer:
             del self.getters[channel]
         if not self and self.receiver:
             self.receiver.cancel()
-    
+
     def put(self, channel, message):
         if channel in self.getters:
             getter = self.getters[channel].popleft()
@@ -212,11 +214,13 @@ class ReceiveBuffer:
             getter.set_result(message)
         else:
             self.buffers[channel].append(message)
-    
+
     async def receiver_factory(self, real_channel):
         try:
             while self:
-                message_channel, message = await self.channel_layer.receive_single(real_channel)
+                message_channel, message = await self.channel_layer.receive_single(
+                    real_channel
+                )
                 if type(message_channel) is list:
                     for chan in message_channel:
                         self.put(chan, message)
