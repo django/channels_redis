@@ -5,7 +5,7 @@ import pytest
 from async_generator import async_generator, yield_
 
 from asgiref.sync import async_to_sync
-from channels_redis.core import ChannelFull, RedisChannelLayer, ReceiveBuffer
+from channels_redis.core import ChannelFull, ReceiveBuffer, RedisChannelLayer
 
 TEST_HOSTS = [("localhost", 6379)]
 
