@@ -167,9 +167,17 @@ class UnsupportedRedis(Exception):
 
 
 class ReceiveBuffer:
-    def __init__(self, channel_layer):
+    """
+    Receive buffer
+    
+    It manages waiters and buffers messages for all specific channels under the same 'real channel'
+    Also manages the receive loop for the 'real channel'
+    """
+
+    def __init__(self, receive_single, real_channel):
         self.loop = None
-        self.channel_layer = channel_layer
+        self.real_channel = real_channel
+        self.receive_single = receive_single
         self.getters = collections.defaultdict(collections.deque)
         self.buffers = collections.defaultdict(lambda: collections.deque(maxlen=20))
         self.receiver = None
@@ -178,6 +186,13 @@ class ReceiveBuffer:
         return bool(self.getters)
 
     def get(self, channel):
+        """
+        :param channel: name of the channel
+        :return: Future for the next message on channel
+        """
+        assert channel.startswith(
+            self.real_channel
+        ), "channel not managed by this buffer"
         getter = self.loop.create_future()
 
         if channel in self.buffers:
@@ -191,10 +206,7 @@ class ReceiveBuffer:
 
             # ensure receiver is running
             if not self.receiver:
-                self.receiver = asyncio.ensure_future(
-                    self.receiver_factory(self.channel_layer.non_local_name(channel))
-                )
-
+                self.receiver = asyncio.ensure_future(self.receiver_factory())
         return getter
 
     def _getter_done_prematurely(self, getter):
@@ -215,12 +227,10 @@ class ReceiveBuffer:
         else:
             self.buffers[channel].append(message)
 
-    async def receiver_factory(self, real_channel):
+    async def receiver_factory(self):
         try:
             while self:
-                message_channel, message = await self.channel_layer.receive_single(
-                    real_channel
-                )
+                message_channel, message = await self.receive_single(self.real_channel)
                 if type(message_channel) is list:
                     for chan in message_channel:
                         self.put(chan, message)
@@ -274,7 +284,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # Set up any encryption objects
         self._setup_encryption(symmetric_encryption_keys)
         # Buffered messages by process-local channel name
-        self.receive_buffers = collections.defaultdict(lambda: ReceiveBuffer(self))
+        self.receive_buffers = {}
         # Detached channel cleanup tasks
         self.receive_cleaners = []
         # Per-channel cleanup locks to prevent a receive starting and moving
@@ -410,6 +420,10 @@ class RedisChannelLayer(BaseChannelLayer):
             ), "Wrong client prefix"
             # Enter receiving section
             loop = asyncio.get_event_loop()
+            if real_channel not in self.receive_buffers:
+                self.receive_buffers[real_channel] = ReceiveBuffer(
+                    self.receive_single, real_channel
+                )
             receive_buffer = self.receive_buffers[real_channel]
 
             # Check our event loop matches

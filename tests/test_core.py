@@ -5,7 +5,7 @@ import pytest
 from async_generator import async_generator, yield_
 
 from asgiref.sync import async_to_sync
-from channels_redis.core import ChannelFull, RedisChannelLayer
+from channels_redis.core import ChannelFull, RedisChannelLayer, ReceiveBuffer
 
 TEST_HOSTS = [("localhost", 6379)]
 
@@ -343,3 +343,68 @@ async def test_receive_cancel(channel_layer):
             await asyncio.wait_for(task, None)
         except asyncio.CancelledError:
             pass
+
+
+@pytest.mark.asyncio
+async def test_receive_multiple_specific_prefixes(channel_layer):
+    """
+    Makes sure we receive on multiple real channels
+    """
+    channel_layer = RedisChannelLayer(capacity=10)
+    channel1 = await channel_layer.new_channel()
+    channel2 = await channel_layer.new_channel(prefix="thing")
+    r1, _, r2 = tasks = [
+        asyncio.ensure_future(x)
+        for x in (
+            channel_layer.receive(channel1),
+            channel_layer.send(channel2, {"type": "message"}),
+            channel_layer.receive(channel2),
+        )
+    ]
+    await asyncio.wait(tasks, timeout=0.5)
+
+    assert not r1.done()
+    assert r2.done() and r2.result()["type"] == "message"
+    r1.cancel()
+
+
+@pytest.mark.asyncio
+async def test_buffer_wrong_channel(channel_layer):
+    async def dummy_receive(channel):
+        return channel, {"type": "message"}
+
+    buffer = ReceiveBuffer(dummy_receive, "whatever!")
+    buffer.loop = asyncio.get_event_loop()
+    with pytest.raises(AssertionError):
+        buffer.get("wrong!13685sjmh")
+
+
+@pytest.mark.asyncio
+async def test_buffer_receiver_stopped(channel_layer):
+    async def dummy_receive(channel):
+        return "whatever!meh", {"type": "message"}
+
+    buffer = ReceiveBuffer(dummy_receive, "whatever!")
+    buffer.loop = asyncio.get_event_loop()
+
+    await buffer.get("whatever!meh")
+    assert buffer.receiver is None
+
+
+@pytest.mark.asyncio
+async def test_buffer_receiver_canceled(channel_layer):
+    async def dummy_receive(channel):
+        await asyncio.sleep(2)
+        return "whatever!meh", {"type": "message"}
+
+    buffer = ReceiveBuffer(dummy_receive, "whatever!")
+    buffer.loop = asyncio.get_event_loop()
+
+    get1 = buffer.get("whatever!meh")
+    assert buffer.receiver is not None
+    get2 = buffer.get("whatever!meh2")
+    get1.cancel()
+    assert buffer.receiver is not None
+    get2.cancel()
+    await asyncio.sleep(0.1)
+    assert buffer.receiver is None
