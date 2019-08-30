@@ -179,7 +179,7 @@ class ReceiveBuffer:
         self.real_channel = real_channel
         self.receive_single = receive_single
         self.getters = collections.defaultdict(collections.deque)
-        self.buffers = collections.defaultdict(lambda: collections.deque(maxlen=20))
+        self.buffers = collections.defaultdict(collections.deque)
         self.receiver = None
 
     def __bool__(self):
