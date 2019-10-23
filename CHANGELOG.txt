@@ -1,7 +1,14 @@
+2.4.1 (2019-10-23)
+------------------
+
+* Fixed compatibility with Python 3.8.
+
+
 2.4.0 (2019-04-14)
 ------------------
 
 * Updated ASGI and Channels dependencies for ASGI v3.
+
 
 2.3.3 (2019-01-10)
 ------------------
