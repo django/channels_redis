@@ -396,7 +396,7 @@ class RedisChannelLayer(BaseChannelLayer):
                     for task in done:
                         try:
                             result = task.result()
-                        except Exception as error:  # NOQA
+                        except BaseException as error:  # NOQA
                             # We should not propagate exceptions immediately as otherwise this may cause
                             # the lock to be held and never be released.
                             exception = error
@@ -502,7 +502,7 @@ class RedisChannelLayer(BaseChannelLayer):
 
             cleaner.add_done_callback(_cleanup_done)
 
-        except Exception:
+        except BaseException:
             self.receive_clean_locks.release(channel_key)
             raise
 
