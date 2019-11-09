@@ -299,9 +299,10 @@ async def test_groups_multiple_hosts_performance(
 
 
 @pytest.mark.asyncio
-async def test_group_send_capacity(channel_layer):
+async def test_group_send_capacity(channel_layer, caplog):
     """
-    Makes sure we dont send messages to groups that are over capacity
+    Makes sure we dont group_send messages to channels that are over capacity.
+    Make sure number of channels with full capacity are logged as an exception to help debug errors.
     """
 
     channel = await channel_layer.new_channel()
@@ -312,15 +313,60 @@ async def test_group_send_capacity(channel_layer):
     await channel_layer.group_send("test-group", {"type": "message.3"})
     await channel_layer.group_send("test-group", {"type": "message.4"})
 
-    # We should recieve the first 3 messages
+    # We should receive the first 3 messages
     assert (await channel_layer.receive(channel))["type"] == "message.1"
     assert (await channel_layer.receive(channel))["type"] == "message.2"
     assert (await channel_layer.receive(channel))["type"] == "message.3"
 
-    # Make sure we do NOT recieve message 4
+    # Make sure we do NOT receive message 4
     with pytest.raises(asyncio.TimeoutError):
         async with async_timeout.timeout(1):
             await channel_layer.receive(channel)
+
+    # Make sure number of channels over capacity are logged
+    for record in caplog.records:
+        assert record.levelname == "ERROR"
+        assert record.msg == "1 of 1 channels over capacity in group test-group"
+
+
+@pytest.mark.asyncio
+async def test_group_send_capacity_multiple_channels(channel_layer, caplog):
+    """
+    Makes sure we dont group_send messages to channels that are over capacity
+    Make sure number of channels with full capacity are logged as an exception to help debug errors.
+    """
+
+    channel_1 = await channel_layer.new_channel()
+    channel_2 = await channel_layer.new_channel(prefix="channel_2")
+    await channel_layer.group_add("test-group", channel_1)
+    await channel_layer.group_add("test-group", channel_2)
+
+    # Let's put channel_2 over capacity
+    await channel_layer.send(channel_2, {"type": "message.0"})
+
+    await channel_layer.group_send("test-group", {"type": "message.1"})
+    await channel_layer.group_send("test-group", {"type": "message.2"})
+    await channel_layer.group_send("test-group", {"type": "message.3"})
+
+    # Channel_1 should receive all 3 group messages
+    assert (await channel_layer.receive(channel_1))["type"] == "message.1"
+    assert (await channel_layer.receive(channel_1))["type"] == "message.2"
+    assert (await channel_layer.receive(channel_1))["type"] == "message.3"
+
+    # Channel_2 should receive the first message + 2 group messages
+    assert (await channel_layer.receive(channel_2))["type"] == "message.0"
+    assert (await channel_layer.receive(channel_2))["type"] == "message.1"
+    assert (await channel_layer.receive(channel_2))["type"] == "message.2"
+
+    # Make sure channel_2 does not receive the 3rd group message
+    with pytest.raises(asyncio.TimeoutError):
+        async with async_timeout.timeout(1):
+            await channel_layer.receive(channel_2)
+
+    # Make sure number of channels over capacity are logged
+    for record in caplog.records:
+        assert record.levelname == "ERROR"
+        assert record.msg == "1 of 2 channels over capacity in group test-group"
 
 
 @pytest.mark.asyncio
