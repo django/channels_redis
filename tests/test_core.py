@@ -334,12 +334,14 @@ async def test_connection_pool_pop():
     conn = await connection_pool.pop()
 
     # Emualte a disconnect and return it to the pool
-    await conn.close()
+    conn.close()
     assert conn.closed == True
     connection_pool.push(conn)
 
     # Ensure the closed connection is inside the pool
-    conns = list(connection_pool.conn_map.values())
+    conn_map_values = list(connection_pool.conn_map.values())
+    assert len(conn_map_values) == 1
+    conns = conn_map_values[0]
     assert len(conns) == 1
     assert conns[0].closed == True
 
