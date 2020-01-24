@@ -334,7 +334,7 @@ async def test_connection_pool_pop():
     conn = connection_pool.pop()
 
     # Emualte a disconnect and return it to the pool
-    conn.close()
+    await conn.close()
     assert conn.closed == True
     connection_pool.push(conn)
 
@@ -344,7 +344,7 @@ async def test_connection_pool_pop():
     assert conns[0].closed == True
 
     # Retrieve new connection
-    conn = connection_pool.pop()
+    conn = await connection_pool.pop()
     assert conn.closed == False
 
 
