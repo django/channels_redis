@@ -331,7 +331,7 @@ async def test_connection_pool_pop():
 
     # Setup scenario
     connection_pool = ConnectionPool(TEST_HOSTS[0])
-    conn = connection_pool.pop()
+    conn = await connection_pool.pop()
 
     # Emualte a disconnect and return it to the pool
     await conn.close()
