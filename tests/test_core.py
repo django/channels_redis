@@ -5,7 +5,7 @@ import pytest
 from async_generator import async_generator, yield_
 
 from asgiref.sync import async_to_sync
-from channels_redis.core import ChannelFull, RedisChannelLayer
+from channels_redis.core import ChannelFull, RedisChannelLayer, ConnectionPool
 
 TEST_HOSTS = [("localhost", 6379)]
 
@@ -321,6 +321,31 @@ async def test_group_send_capacity(channel_layer):
     with pytest.raises(asyncio.TimeoutError):
         async with async_timeout.timeout(1):
             await channel_layer.receive(channel)
+
+
+@pytest.mark.asyncio
+async def test_connection_pool_pop():
+    """
+    Makes sure that the connection pool does not return closed connections
+    """
+
+    # Setup scenario
+    connection_pool = ConnectionPool(TEST_HOSTS[0])
+    conn = connection_pool.pop()
+
+    # Emualte a disconnect and return it to the pool
+    conn.close()
+    assert conn.closed == True
+    connection_pool.push(conn)
+
+    # Ensure the closed connection is inside the pool
+    conns = list(connection_pool.conn_map.values())
+    assert len(conns) == 1
+    assert conns[0].closed == True
+
+    # Retrieve new connection
+    conn = conn_pool.pop()
+    assert conn.closed == False
 
 
 @pytest.mark.asyncio
