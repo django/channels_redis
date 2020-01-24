@@ -5,7 +5,7 @@ import pytest
 from async_generator import async_generator, yield_
 
 from asgiref.sync import async_to_sync
-from channels_redis.core import ChannelFull, RedisChannelLayer, ConnectionPool
+from channels_redis.core import ChannelFull, ConnectionPool, RedisChannelLayer
 
 TEST_HOSTS = [("localhost", 6379)]
 
@@ -344,7 +344,7 @@ async def test_connection_pool_pop():
     assert conns[0].closed == True
 
     # Retrieve new connection
-    conn = conn_pool.pop()
+    conn = connection_pool.pop()
     assert conn.closed == False
 
 

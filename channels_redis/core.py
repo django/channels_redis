@@ -618,9 +618,11 @@ class RedisChannelLayer(BaseChannelLayer):
                 x.decode("utf8") for x in await connection.zrange(key, 0, -1)
             ]
 
-        connection_to_channel_keys, channel_keys_to_message, channel_keys_to_capacity = self._map_channel_keys_to_connection(
-            channel_names, message
-        )
+        (
+            connection_to_channel_keys,
+            channel_keys_to_message,
+            channel_keys_to_capacity,
+        ) = self._map_channel_keys_to_connection(channel_names, message)
 
         for connection_index, channel_redis_keys in connection_to_channel_keys.items():
 
