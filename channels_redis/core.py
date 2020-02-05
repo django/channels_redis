@@ -4,6 +4,7 @@ import binascii
 import collections
 import hashlib
 import itertools
+import logging
 import random
 import string
 import time
@@ -14,6 +15,8 @@ import msgpack
 
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
+
+logger = logging.getLogger(__name__)
 
 
 def _wrap_close(loop, pool):
@@ -632,13 +635,16 @@ class RedisChannelLayer(BaseChannelLayer):
             # __asgi_channel__ key.
 
             group_send_lua = (
-                """
+                """ local over_capacity = 0
                     for i=1,#KEYS do
                         if redis.call('LLEN', KEYS[i]) < tonumber(ARGV[i + #KEYS]) then
                             redis.call('LPUSH', KEYS[i], ARGV[i])
                             redis.call('EXPIRE', KEYS[i], %d)
+                        else
+                            over_capacity = over_capacity + 1
                         end
                     end
+                    return over_capacity
                     """
                 % self.expiry
             )
@@ -657,9 +663,13 @@ class RedisChannelLayer(BaseChannelLayer):
 
             # channel_keys does not contain a single redis key more than once
             async with self.connection(connection_index) as connection:
-                await connection.eval(
+                channels_over_capacity = await connection.eval(
                     group_send_lua, keys=channel_redis_keys, args=args
                 )
+                if channels_over_capacity > 0:
+                    logger.exception(
+                        f"{channels_over_capacity} of {len(channel_names)} channels over capacity in group {group}"
+                    )
 
     def _map_channel_to_connection(self, channel_names, message):
         """
