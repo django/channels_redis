@@ -70,7 +70,7 @@ class ConnectionPool:
         """
         conns, loop = self._ensure_loop(loop)
         if not conns:
-            conns.append(await aioredis.create_redis(**self.host, loop=loop))
+            conns.append(await aioredis.create_redis(**self.host))
         conn = conns.pop()
         if conn.closed:
             conn = await self.pop(loop=loop)
