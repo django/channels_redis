@@ -1,3 +1,4 @@
+import sys
 import asyncio
 import base64
 import binascii
@@ -70,7 +71,11 @@ class ConnectionPool:
         """
         conns, loop = self._ensure_loop(loop)
         if not conns:
-            conns.append(await aioredis.create_redis(**self.host))
+            if sys.version_info >= (3, 8, 0):
+                conn = await aioredis.create_redis(**self.host)
+            else:
+                conn = await aioredis.create_redis(**self.host, loop=loop)
+            conns.append(conn)
         conn = conns.pop()
         if conn.closed:
             conn = await self.pop(loop=loop)
