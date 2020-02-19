@@ -1,3 +1,12 @@
+2.4.2 (2020-02-19)
+------------------
+
+* Fixed a bug where ``ConnectionPool.pop()`` might return an invalid
+  connection.
+
+* Added logging for a group_send over capacity failure.
+
+
 2.4.1 (2019-10-23)
 ------------------
 
