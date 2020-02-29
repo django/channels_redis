@@ -1,4 +1,3 @@
-import sys
 import asyncio
 import base64
 import binascii
@@ -8,6 +7,7 @@ import itertools
 import logging
 import random
 import string
+import sys
 import time
 import types
 
