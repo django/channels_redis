@@ -3,6 +3,8 @@ Unreleased
 
 * Updated msgpack requirement to `~=1.0`.
 
+* Ensured channel names are unique using UUIDs.
+
 
 2.4.2 (2020-02-19)
 ------------------
