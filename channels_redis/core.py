@@ -687,7 +687,7 @@ class RedisChannelLayer(BaseChannelLayer):
                     group_send_lua, keys=channel_redis_keys, args=args
                 )
                 if channels_over_capacity > 0:
-                    logger.exception(
+                    logger.info(
                         f"{channels_over_capacity} of {len(channel_names)} channels over capacity in group {group}"
                     )
 

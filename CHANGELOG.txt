@@ -7,7 +7,9 @@ Unreleased
 
 * Ensured messages are expired even when channel is in constant activity.
 
-* Optimized Redis script caching
+* Optimized Redis script caching.
+
+* Reduced group_send failure logging level to reduce log noise.
 
 
 2.4.2 (2020-02-19)

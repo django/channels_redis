@@ -356,7 +356,7 @@ async def test_group_send_capacity(channel_layer, caplog):
 
     # Make sure number of channels over capacity are logged
     for record in caplog.records:
-        assert record.levelname == "ERROR"
+        assert record.levelname == "INFO"
         assert record.msg == "1 of 1 channels over capacity in group test-group"
 
 
@@ -396,7 +396,7 @@ async def test_group_send_capacity_multiple_channels(channel_layer, caplog):
 
     # Make sure number of channels over capacity are logged
     for record in caplog.records:
-        assert record.levelname == "ERROR"
+        assert record.levelname == "INFO"
         assert record.msg == "1 of 2 channels over capacity in group test-group"
 
 
