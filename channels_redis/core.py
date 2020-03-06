@@ -5,11 +5,10 @@ import collections
 import hashlib
 import itertools
 import logging
-import random
-import string
 import sys
 import time
 import types
+import uuid
 
 import aioredis
 import msgpack
@@ -216,10 +215,7 @@ class RedisChannelLayer(BaseChannelLayer):
         self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
         # Decide on a unique client prefix to use in ! sections
-        # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
-        self.client_prefix = "".join(
-            random.choice(string.ascii_letters) for i in range(8)
-        )
+        self.client_prefix = uuid.uuid4().hex
         # Set up any encryption objects
         self._setup_encryption(symmetric_encryption_keys)
         # Number of coroutines trying to receive right now
@@ -533,12 +529,7 @@ class RedisChannelLayer(BaseChannelLayer):
         Returns a new channel name that can be used by something in our
         process as a specific channel.
         """
-        # TODO: Guarantee uniqueness better?
-        return "%s.%s!%s" % (
-            prefix,
-            self.client_prefix,
-            "".join(random.choice(string.ascii_letters) for i in range(12)),
-        )
+        return "%s.%s!%s" % (prefix, self.client_prefix, uuid.uuid4().hex,)
 
     ### Flush extension ###
 

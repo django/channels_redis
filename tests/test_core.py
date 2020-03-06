@@ -1,4 +1,5 @@
 import asyncio
+import random
 
 import async_timeout
 import pytest
@@ -416,3 +417,31 @@ async def test_receive_cancel(channel_layer):
             await asyncio.wait_for(task, None)
         except asyncio.CancelledError:
             pass
+
+
+@pytest.mark.asyncio
+async def test_random_reset__channel_name(channel_layer):
+    """
+    Makes sure resetting random seed does not make us reuse channel names.
+    """
+
+    channel_layer = RedisChannelLayer()
+    random.seed(1)
+    channel_name_1 = await channel_layer.new_channel()
+    random.seed(1)
+    channel_name_2 = await channel_layer.new_channel()
+
+    assert channel_name_1 != channel_name_2
+
+
+@pytest.mark.asyncio
+async def test_random_reset__client_prefix(channel_layer):
+    """
+    Makes sure resetting random seed does not make us reuse client_prefixes.
+    """
+
+    random.seed(1)
+    channel_layer_1 = RedisChannelLayer()
+    random.seed(1)
+    channel_layer_2 = RedisChannelLayer()
+    assert channel_layer_1.client_prefix != channel_layer_2.client_prefix
