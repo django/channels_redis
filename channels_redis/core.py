@@ -19,6 +19,8 @@ from channels.layers import BaseChannelLayer
 
 logger = logging.getLogger(__name__)
 
+AIOREDIS_VERSION = tuple(map(int, aioredis.__version__.split('.')))
+
 
 def _wrap_close(loop, pool):
     """
@@ -71,7 +73,7 @@ class ConnectionPool:
         """
         conns, loop = self._ensure_loop(loop)
         if not conns:
-            if sys.version_info >= (3, 8, 0):
+            if sys.version_info >= (3, 8, 0) and AIOREDIS_VERSION >= (1, 3, 1):
                 conn = await aioredis.create_redis(**self.host)
             else:
                 conn = await aioredis.create_redis(**self.host, loop=loop)
