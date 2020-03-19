@@ -19,7 +19,7 @@ from channels.layers import BaseChannelLayer
 
 logger = logging.getLogger(__name__)
 
-AIOREDIS_VERSION = tuple(map(int, aioredis.__version__.split('.')))
+AIOREDIS_VERSION = tuple(map(int, aioredis.__version__.split(".")))
 
 
 def _wrap_close(loop, pool):
