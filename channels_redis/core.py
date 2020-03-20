@@ -18,7 +18,7 @@ from channels.layers import BaseChannelLayer
 
 logger = logging.getLogger(__name__)
 
-
+#only added a comment fork to understand the pull req
 def _wrap_close(loop, pool):
     """
     Decorate an event loop's close method with our own.
