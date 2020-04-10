@@ -82,8 +82,11 @@ class ConnectionPool:
         """
         Return a connection to the pool.
         """
-        loop = self.in_use[conn]
-        del self.in_use[conn]
+        loop = None
+        if conn in self.in_use:
+            loop = self.in_use[conn]
+            del self.in_use[conn]
+
         if loop is not None:
             conns, _ = self._ensure_loop(loop)
             conns.append(conn)
