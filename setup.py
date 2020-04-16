@@ -32,7 +32,7 @@ setup(
     python_requires=">=3.6",
     install_requires=[
         "aioredis~=1.0",
-        "msgpack~=0.6.0",
+        "msgpack~=1.0",
         "asgiref~=3.0",
         "channels~=2.2",
     ],
