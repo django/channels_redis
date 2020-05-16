@@ -688,7 +688,10 @@ class RedisChannelLayer(BaseChannelLayer):
                 )
                 if channels_over_capacity > 0:
                     logger.info(
-                        f"{channels_over_capacity} of {len(channel_names)} channels over capacity in group {group}"
+                        "%s of %s channels over capacity in group %s",
+                        channels_over_capacity,
+                        len(channel_names),
+                        group,
                     )
 
     def _map_channel_to_connection(self, channel_names, message):
