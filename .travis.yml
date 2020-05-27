@@ -30,7 +30,7 @@ jobs:
       install: pip install -U .[tests] black pyflakes isort
       script:
         - pyflakes .
-        - black --check .
+        - black --diff --check .
         - isort --check-only --diff --recursive channels_redis tests
 
     - stage: release
