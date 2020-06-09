@@ -10,8 +10,8 @@ import string
 import time
 import types
 
-import aioredis
 import msgpack
+from aredis import StrictRedis
 
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
@@ -34,102 +34,6 @@ def _wrap_close(loop, pool):
         return self.close(*args, **kwargs)
 
     loop.close = types.MethodType(_wrapper, loop)
-
-
-class ConnectionPool:
-    """
-    Connection pool manager for the channel layer.
-
-    It manages a set of connections for the given host specification and
-    taking into account asyncio event loops.
-    """
-
-    def __init__(self, host):
-        self.host = host
-        self.conn_map = {}
-        self.in_use = {}
-
-    def _ensure_loop(self, loop):
-        """
-        Get connection list for the specified loop.
-        """
-        if loop is None:
-            loop = asyncio.get_event_loop()
-
-        if loop not in self.conn_map:
-            # Swap the loop's close method with our own so we get
-            # a chance to do some cleanup.
-            _wrap_close(loop, self)
-            self.conn_map[loop] = []
-
-        return self.conn_map[loop], loop
-
-    async def pop(self, loop=None):
-        """
-        Get a connection for the given identifier and loop.
-        """
-        conns, loop = self._ensure_loop(loop)
-        if not conns:
-            conns.append(await aioredis.create_redis(**self.host, loop=loop))
-        conn = conns.pop()
-        if conn.closed:
-            conn = await self.pop(loop=loop)
-            return conn
-        self.in_use[conn] = loop
-        return conn
-
-    def push(self, conn):
-        """
-        Return a connection to the pool.
-        """
-        loop = self.in_use[conn]
-        del self.in_use[conn]
-        if loop is not None:
-            conns, _ = self._ensure_loop(loop)
-            conns.append(conn)
-
-    def conn_error(self, conn):
-        """
-        Handle a connection that produced an error.
-        """
-        conn.close()
-        del self.in_use[conn]
-
-    def reset(self):
-        """
-        Clear all connections from the pool.
-        """
-        self.conn_map = {}
-        self.in_use = {}
-
-    async def close_loop(self, loop):
-        """
-        Close all connections owned by the pool on the given loop.
-        """
-        if loop in self.conn_map:
-            for conn in self.conn_map[loop]:
-                conn.close()
-                await conn.wait_closed()
-            del self.conn_map[loop]
-
-        for k, v in self.in_use.items():
-            if v is loop:
-                self.in_use[k] = None
-
-    async def close(self):
-        """
-        Close all connections owned by the pool.
-        """
-        conn_map = self.conn_map
-        in_use = self.in_use
-        self.reset()
-        for conns in conn_map.values():
-            for conn in conns:
-                conn.close()
-                await conn.wait_closed()
-        for conn in in_use:
-            conn.close()
-            await conn.wait_closed()
 
 
 class ChannelLock:
@@ -204,7 +108,12 @@ class RedisChannelLayer(BaseChannelLayer):
         self.hosts = self.decode_hosts(hosts)
         self.ring_size = len(self.hosts)
         # Cached redis connection pools and the event loop they are from
-        self.pools = [ConnectionPool(host) for host in self.hosts]
+        self.pools = []
+        for host in self.hosts:
+            if isinstance(host, str):
+                self.pools.append(StrictRedis.from_url(host))
+            else:
+                self.pools.append(StrictRedis(**host))
         # Normal channels choose a host index by cycling through the available hosts
         self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
@@ -236,7 +145,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         # If no hosts were provided, return a default value
         if not hosts:
-            return [{"address": ("localhost", 6379)}]
+            return [{"host": "localhost"}]
         # If they provided just a string, scold them.
         if isinstance(hosts, (str, bytes)):
             raise ValueError(
@@ -247,8 +156,12 @@ class RedisChannelLayer(BaseChannelLayer):
         for entry in hosts:
             if isinstance(entry, dict):
                 result.append(entry)
+            elif isinstance(entry, (list, tuple)):
+                result.append({"host": entry[0], "port": entry[1]})
+            elif isinstance(entry, str):
+                result.append(entry)
             else:
-                result.append({"address": entry})
+                raise TypeError("invalid redis host type")
         return result
 
     def _setup_encryption(self, symmetric_encryption_keys):
@@ -330,7 +243,7 @@ class RedisChannelLayer(BaseChannelLayer):
         async with self.connection(index) as connection:
             # Cancellation here doesn't matter, we're not doing anything destructive
             # and the script executes atomically...
-            await connection.eval(cleanup_script, keys=[], args=[channel, backup_queue])
+            await connection.eval(cleanup_script, 0, channel, backup_queue)
             # ...and it doesn't matter here either, the message will be safe in the backup.
             return await connection.brpoplpush(channel, backup_queue, timeout=timeout)
 
@@ -553,7 +466,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # Go through each connection and remove all with prefix
         for i in range(self.ring_size):
             async with self.connection(i) as connection:
-                await connection.eval(delete_prefix, keys=[], args=[self.prefix + "*"])
+                await connection.eval(delete_prefix, 0, self.prefix + "*")
         # Now clear the pools as well
         await self.close_pools()
 
@@ -566,7 +479,7 @@ class RedisChannelLayer(BaseChannelLayer):
         await self.wait_received()
 
         for pool in self.pools:
-            await pool.close()
+            pool.connection_pool.disconnect()
 
     async def wait_received(self):
         """
@@ -664,7 +577,9 @@ class RedisChannelLayer(BaseChannelLayer):
             # channel_keys does not contain a single redis key more than once
             async with self.connection(connection_index) as connection:
                 channels_over_capacity = await connection.eval(
-                    group_send_lua, keys=channel_redis_keys, args=args
+                    group_send_lua,
+                    len(channel_redis_keys),
+                    *(channel_redis_keys + args),
                 )
                 if channels_over_capacity > 0:
                     logger.exception(
@@ -832,12 +747,7 @@ class RedisChannelLayer(BaseChannelLayer):
             self.pool = pool
 
         async def __aenter__(self):
-            self.conn = await self.pool.pop()
-            return self.conn
+            return self.pool
 
         async def __aexit__(self, exc_type, exc, tb):
-            if exc:
-                self.pool.conn_error(self.conn)
-            else:
-                self.pool.push(self.conn)
-            self.conn = None
+            pass

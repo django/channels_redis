@@ -5,3 +5,5 @@ build/
 *.pyc
 /.tox
 .DS_Store
+env/
+.vscode/

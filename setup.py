@@ -13,7 +13,7 @@ test_requires = crypto_requires + [
     "pytest~=5.4.0",
     "pytest-asyncio~=0.8",
     "async_generator~=1.8",
-    "async-timeout~=2.0",
+    "async-timeout~=3.0",
 ]
 
 
@@ -31,7 +31,7 @@ setup(
     include_package_data=True,
     python_requires=">=3.6",
     install_requires=[
-        "aioredis~=1.0",
+        "aredis~=1.0",
         "msgpack~=0.6.0",
         "asgiref~=3.0",
         "channels~=2.2",
