@@ -5,3 +5,4 @@ build/
 *.pyc
 /.tox
 .DS_Store
+.pytest_cache
