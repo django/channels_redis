@@ -10,10 +10,10 @@ readme = open(join(dirname(__file__), "README.rst")).read()
 crypto_requires = ["cryptography>=1.3.0"]
 
 test_requires = crypto_requires + [
-    "pytest~=5.4.0",
-    "pytest-asyncio~=0.8",
-    "async_generator~=1.8",
-    "async-timeout~=2.0",
+    "pytest",
+    "pytest-asyncio",
+    "async_generator",
+    "async-timeout",
 ]
 
 

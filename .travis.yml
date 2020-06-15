@@ -11,6 +11,7 @@ services:
   - redis-server
 
 install:
+  - pip install -U pytest  # Travis comes with an old version pre-installed.
   - pip install -e .[tests]
   - pip freeze
 
