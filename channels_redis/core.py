@@ -652,20 +652,20 @@ class RedisChannelLayer(BaseChannelLayer):
             # stored in channel_to_message dict and contains the
             # __asgi_channel__ key.
 
-            group_send_lua = """ local over_capacity = 0
-                    for i=1,#KEYS do
-                        if redis.call('ZCOUNT', KEYS[i], '-inf', '+inf') < tonumber(ARGV[i + #KEYS]) then
-                            redis.call('ZADD', KEYS[i], %f, ARGV[i])
-                            redis.call('EXPIRE', KEYS[i], %d)
-                        else
-                            over_capacity = over_capacity + 1
-                        end
+            group_send_lua = """
+                local over_capacity = 0
+                local current_time = ARGV[#ARGV - 1]
+                local expiry = ARGV[#ARGV]
+                for i=1,#KEYS do
+                    if redis.call('ZCOUNT', KEYS[i], '-inf', '+inf') < tonumber(ARGV[i + #KEYS]) then
+                        redis.call('ZADD', KEYS[i], current_time, ARGV[i])
+                        redis.call('EXPIRE', KEYS[i], expiry)
+                    else
+                        over_capacity = over_capacity + 1
                     end
-                    return over_capacity
-                    """ % (
-                time.time(),
-                self.expiry,
-            )
+                end
+                return over_capacity
+            """
 
             # We need to filter the messages to keep those related to the connection
             args = [
@@ -678,6 +678,8 @@ class RedisChannelLayer(BaseChannelLayer):
                 channel_keys_to_capacity[channel_key]
                 for channel_key in channel_redis_keys
             ]
+
+            args += [time.time(), self.expiry]
 
             # channel_keys does not contain a single redis key more than once
             async with self.connection(connection_index) as connection:

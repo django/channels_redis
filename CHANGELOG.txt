@@ -5,6 +5,10 @@ Unreleased
 
 * Ensured channel names are unique using UUIDs.
 
+* Ensured messages are expired even when channel is in constant activity.
+
+* Optimized Redis script caching
+
 
 2.4.2 (2020-02-19)
 ------------------
