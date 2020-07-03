@@ -615,3 +615,15 @@ async def test_message_expiry__group_send__one_channel_expires_message(channel_l
     message = await channel_layer.receive(channel_2)
     assert message["type"] == "test.message"
     assert message["text"] == "Third!"
+
+
+def test_default_group_key_format():
+    channel_layer = RedisChannelLayer()
+    group_name = channel_layer._group_key("test_group")
+    assert group_name == b"asgi:group:test_group"
+
+
+def test_custom_group_key_format():
+    channel_layer = RedisChannelLayer(prefix="test_prefix")
+    group_name = channel_layer._group_key("test_group")
+    assert group_name == b"test_prefix:group:test_group"
