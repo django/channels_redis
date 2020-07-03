@@ -1,5 +1,5 @@
-Unreleased
-----------
+3.0.0 (2020-07-03)
+------------------
 
 * Updated msgpack requirement to `~=1.0`.
 
