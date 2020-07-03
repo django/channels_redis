@@ -11,6 +11,10 @@ Unreleased
 
 * Reduced group_send failure logging level to reduce log noise.
 
+* Removed trailing `:` from default channel layer `prefix` to avoid double
+  `::` in group keys. (You can restore the old default specifying
+  `prefix="asgi:"` if necessary.)
+
 
 2.4.2 (2020-02-19)
 ------------------

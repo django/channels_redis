@@ -193,7 +193,7 @@ class RedisChannelLayer(BaseChannelLayer):
     def __init__(
         self,
         hosts=None,
-        prefix="asgi:",
+        prefix="asgi",
         expiry=60,
         group_expiry=86400,
         capacity=100,
