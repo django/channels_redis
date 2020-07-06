@@ -152,7 +152,7 @@ If you're using Django, you may also wish to set this to your site's
 Dependencies
 ------------
 
-Redis >= 2.6 is required for `channels_redis`. It supports Python 3.5.2 and up
+Redis >= 5.0 is required for `channels_redis`. It supports Python 3.5.2 and up
 (3.5.0 or 3.5.1 will not work due to our dependency, ``aioredis``).
 
 Contributing
