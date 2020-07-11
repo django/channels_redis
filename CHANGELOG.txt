@@ -1,6 +1,8 @@
 3.0.0 (2020-07-03)
 ------------------
 
+* Redis >= 5.0 is now required.
+
 * Updated msgpack requirement to `~=1.0`.
 
 * Ensured channel names are unique using UUIDs.
@@ -15,9 +17,7 @@
   `::` in group keys. (You can restore the old default specifying
   `prefix="asgi:"` if necessary.)
   
-* BREAKING CHANGE: Redis >= 5.0 is now required.
-
-
+  
 2.4.2 (2020-02-19)
 ------------------
 
