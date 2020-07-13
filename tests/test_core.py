@@ -445,7 +445,7 @@ async def test_receive_cancel(channel_layer):
         task = asyncio.ensure_future(channel_layer.receive(channel))
         await asyncio.sleep(delay)
         task.cancel()
-        delay += 0.001
+        delay += 0.0001
 
         try:
             await asyncio.wait_for(task, None)
