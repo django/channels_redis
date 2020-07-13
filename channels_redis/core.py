@@ -330,9 +330,9 @@ class RedisChannelLayer(BaseChannelLayer):
         # of the main message queue in the proper order; BRPOP must *not* be called
         # because that would deadlock the server
         cleanup_script = """
-            local backed_up = redis.call('ZRANGE', ARGV[2], 0, -1)
-            for i = #backed_up, 1, -1 do
-                redis.call('ZADD', ARGV[1], backed_up[i])
+            local backed_up = redis.call('ZRANGE', ARGV[2], 0, -1, 'WITHSCORES')
+            for i = #backed_up, 1, -2 do
+                redis.call('ZADD', ARGV[1], backed_up[i], backed_up[i - 1])
             end
             redis.call('DEL', ARGV[2])
         """
