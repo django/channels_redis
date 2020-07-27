@@ -179,6 +179,40 @@ class UnsupportedRedis(Exception):
     pass
 
 
+class ExpiringCache(collections.defaultdict):
+    def __init__(self, default, ttl=60, *args, **kw):
+        collections.defaultdict.__init__(self, default)
+        self._expires = collections.OrderedDict()
+        self.ttl = ttl
+
+    def __setitem__(self, k, v):
+        collections.defaultdict.__setitem__(self, k, v)
+        self._expires[k] = time.time() + self.ttl
+
+    def __delitem__(self, k):
+        try:
+            collections.defaultdict.__delitem__(self, k)
+        except KeyError:
+            # RedisChannelLayer itself _does_ periodically clean up this
+            # dictionary (e.g., when exceptions like asyncio.CancelledError
+            # occur)
+            pass
+
+    def expire(self):
+        expired = []
+        for k in self._expires.keys():
+            if self._expires[k] < time.time():
+                expired.append(k)
+            else:
+                # as this is an OrderedDict, every key after this
+                # was inserted *later*, so if _this_ key is *not* expired,
+                # the ones after it aren't either (so we can stop iterating)
+                break
+        for k in expired:
+            del self._expires[k]
+            del self[k]
+
+
 class RedisChannelLayer(BaseChannelLayer):
     """
     Redis channel layer.
@@ -226,7 +260,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # Event loop they are trying to receive on
         self.receive_event_loop = None
         # Buffered messages by process-local channel name
-        self.receive_buffer = collections.defaultdict(asyncio.Queue)
+        self.receive_buffer = ExpiringCache(asyncio.Queue, ttl=self.expiry)
         # Detached channel cleanup tasks
         self.receive_cleaners = []
         # Per-channel cleanup locks to prevent a receive starting and moving
@@ -616,6 +650,7 @@ class RedisChannelLayer(BaseChannelLayer):
         key = self._group_key(group)
         async with self.connection(self.consistent_hash(group)) as connection:
             await connection.zrem(key, channel)
+        self.receive_buffer.expire()
 
     async def group_send(self, group, message):
         """

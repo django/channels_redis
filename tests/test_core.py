@@ -1,12 +1,18 @@
 import asyncio
 import random
+import time
 
 import async_timeout
 import pytest
 from async_generator import async_generator, yield_
 
 from asgiref.sync import async_to_sync
-from channels_redis.core import ChannelFull, ConnectionPool, RedisChannelLayer
+from channels_redis.core import (
+    ChannelFull,
+    ConnectionPool,
+    ExpiringCache,
+    RedisChannelLayer,
+)
 
 TEST_HOSTS = [("localhost", 6379)]
 
@@ -627,3 +633,43 @@ def test_custom_group_key_format():
     channel_layer = RedisChannelLayer(prefix="test_prefix")
     group_name = channel_layer._group_key("test_group")
     assert group_name == b"test_prefix:group:test_group"
+
+
+def test_expiring_buffer_default_value():
+    buff = ExpiringCache(asyncio.Queue)
+    assert isinstance(buff["foo"], asyncio.Queue)
+
+
+def test_expiring_buffer_default_ttl():
+    buff = ExpiringCache(None)
+    assert buff.ttl == 60
+
+
+def test_expiring_buffer_ttl_expiration():
+    past = time.time() - 60
+    buff = ExpiringCache(None)
+
+    for x in range(100):
+        buff[x] = "example"
+    assert len(buff) == 100
+    buff.expire()
+    assert len(buff) == 100
+
+    for x in range(100):
+        buff._expires[x] = past
+    buff["extra"] = "extra"
+    buff.expire()
+    assert len(buff) == 1
+    assert "extra" in buff
+    assert len(buff._expires) == 1
+
+
+def test_expiring_buffer_ttl_already_gone():
+    past = time.time() - 60
+    buff = ExpiringCache(None)
+    buff["delete"] = "example"
+    buff._expires["delete"] = past
+    del buff["delete"]
+    buff.expire()
+    assert len(buff) == 0
+    assert len(buff._expires) == 0
