@@ -1,3 +1,9 @@
+UNRELEASED
+----------
+
+* Ensured per-channel queues are bounded in size to avoid a slow memory leak
+  if consumers stop reading.
+
 3.0.1 (2020-07-15)
 ------------------
 

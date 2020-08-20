@@ -627,3 +627,17 @@ def test_custom_group_key_format():
     channel_layer = RedisChannelLayer(prefix="test_prefix")
     group_name = channel_layer._group_key("test_group")
     assert group_name == b"test_prefix:group:test_group"
+
+
+def test_receive_buffer_respects_capacity():
+    channel_layer = RedisChannelLayer()
+    buff = channel_layer.receive_buffer["test-group"]
+    for i in range(10000):
+        buff.put_nowait(i)
+
+    capacity = 100
+    assert channel_layer.capacity == capacity
+    assert buff.full() is True
+    assert buff.qsize() == capacity
+    messages = [buff.get_nowait() for _ in range(capacity)]
+    assert list(range(9900, 10000)) == messages

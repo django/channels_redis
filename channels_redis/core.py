@@ -2,6 +2,7 @@ import asyncio
 import base64
 import binascii
 import collections
+import functools
 import hashlib
 import itertools
 import logging
@@ -179,6 +180,19 @@ class UnsupportedRedis(Exception):
     pass
 
 
+class BoundedQueue(asyncio.Queue):
+    def put_nowait(self, item):
+        if self.full():
+            # see: https://github.com/django/channels_redis/issues/212
+            # if we actually get into this code block, it likely means that
+            # this specific consumer has stopped reading
+            # if we get into this code block, it's better to drop messages
+            # that exceed the channel layer capacity than to continue to
+            # malloc() forever
+            self.get_nowait()
+        return super(BoundedQueue, self).put_nowait(item)
+
+
 class RedisChannelLayer(BaseChannelLayer):
     """
     Redis channel layer.
@@ -226,7 +240,9 @@ class RedisChannelLayer(BaseChannelLayer):
         # Event loop they are trying to receive on
         self.receive_event_loop = None
         # Buffered messages by process-local channel name
-        self.receive_buffer = collections.defaultdict(asyncio.Queue)
+        self.receive_buffer = collections.defaultdict(
+            functools.partial(BoundedQueue, self.capacity)
+        )
         # Detached channel cleanup tasks
         self.receive_cleaners = []
         # Per-channel cleanup locks to prevent a receive starting and moving
@@ -544,7 +560,11 @@ class RedisChannelLayer(BaseChannelLayer):
         Returns a new channel name that can be used by something in our
         process as a specific channel.
         """
-        return "%s.%s!%s" % (prefix, self.client_prefix, uuid.uuid4().hex,)
+        return "%s.%s!%s" % (
+            prefix,
+            self.client_prefix,
+            uuid.uuid4().hex,
+        )
 
     ### Flush extension ###
 
