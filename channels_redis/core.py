@@ -313,7 +313,7 @@ class RedisChannelLayer(BaseChannelLayer):
         # Pick a connection to the right server - consistent for specific
         # channels, random for general channels
         if "!" in channel:
-            index = self.consistent_hash(channel)
+            index = self.consistent_hash(channel_non_local_name)
         else:
             index = next(self._send_index_generator)
         async with self.connection(index) as connection:
