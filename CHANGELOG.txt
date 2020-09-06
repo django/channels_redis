@@ -1,8 +1,12 @@
-UNRELEASED
-----------
+3.1.0 (2020-09-06)
+------------------
 
-* Ensured per-channel queues are bounded in size to avoid a slow memory leak
-  if consumers stop reading.
+* Ensured per-channel queues are bounded in size to avoid a slow memory leak if
+  consumers stop reading.
+
+  Queues are bound to the channel layer's configured ``capacity``. You may
+  adjust this to a suitably high value if you were relying on the previously
+  unbounded behaviour.
 
 3.0.1 (2020-07-15)
 ------------------
