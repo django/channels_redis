@@ -43,6 +43,8 @@ but note that changing the host list will lose some sharded data.
 If your server is listening on a UNIX domain socket, you can also use that to connect: ``["unix:///path/to/redis.sock"]``.
 This should be slightly faster than a loopback TCP connection.
 
+If you wanna use special symbol in redis password, you can use that to connect ``[{"address": (host, port), "db": 0, "password": 'xx'}]``
+
 ``prefix``
 ~~~~~~~~~~
 
