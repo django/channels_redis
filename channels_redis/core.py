@@ -18,6 +18,11 @@ import msgpack
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
 
+#
+# It makes use of the following redis commands:
+# ADD, DEL, EVAL, EXPIRE, KEYS, ZADD, ZCOUNT, ZPOPMIN, ZRANGE, ZREM, ZREMRANGEBYSCORE
+#
+
 logger = logging.getLogger(__name__)
 
 AIOREDIS_VERSION = tuple(map(int, aioredis.__version__.split(".")))
