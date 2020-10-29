@@ -1,3 +1,10 @@
+3.2.0 (2020-10-29)
+------------------
+
+* Adjusted dependency specifiers to allow updating to the latest versions of
+  ``asgiref`` and Channels.
+
+
 3.1.0 (2020-09-06)
 ------------------
 
@@ -7,6 +14,7 @@
   Queues are bound to the channel layer's configured ``capacity``. You may
   adjust this to a suitably high value if you were relying on the previously
   unbounded behaviour.
+
 
 3.0.1 (2020-07-15)
 ------------------
