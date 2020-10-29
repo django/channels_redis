@@ -1,8 +1,8 @@
 channels_redis
 ==============
 
-.. image:: https://api.travis-ci.org/django/channels_redis.svg
-    :target: https://travis-ci.org/django/channels_redis
+.. image:: https://github.com/django/channels_redis/workflows/Tests/badge.svg
+    :target:https://github.com/django/channels_redis/actions?query=workflow%3ATests
 
 .. image:: https://img.shields.io/pypi/v/channels_redis.svg
     :target: https://pypi.python.org/pypi/channels_redis
