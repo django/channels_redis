@@ -828,7 +828,7 @@ class RedisChannelLayer(BaseChannelLayer):
 
         if self.crypter:
             message = self.crypter.decrypt(message, self.expiry + 10)
-        return msgpack.unpackb(message, raw=False)
+        return msgpack.unpackb(message, strict_map_key=False)
 
     ### Internal functions ###
 
