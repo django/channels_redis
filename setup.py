@@ -10,10 +10,10 @@ readme = open(join(dirname(__file__), "README.rst")).read()
 crypto_requires = ["cryptography>=1.3.0"]
 
 test_requires = crypto_requires + [
-    "pytest~=5.4.0",
-    "pytest-asyncio~=0.8",
-    "async_generator~=1.8",
-    "async-timeout~=3.0",
+    "pytest",
+    "pytest-asyncio",
+    "async_generator",
+    "async-timeout",
 ]
 
 
@@ -32,9 +32,9 @@ setup(
     python_requires=">=3.6",
     install_requires=[
         "aredis~=1.0",
-        "msgpack~=0.6.0",
-        "asgiref~=3.0",
-        "channels~=2.2",
+        "msgpack~=1.0",
+        "asgiref>=3.2.10,<4",
+        "channels<4",
     ],
     extras_require={"cryptography": crypto_requires, "tests": test_requires},
 )

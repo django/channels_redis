@@ -2,13 +2,15 @@ import asyncio
 import base64
 import binascii
 import collections
+import functools
 import hashlib
 import itertools
 import logging
 import random
-import string
+import sys
 import time
 import types
+import uuid
 
 import msgpack
 from aredis import StrictRedis
@@ -17,6 +19,8 @@ from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
 
 logger = logging.getLogger(__name__)
+
+AIOREDIS_VERSION = tuple(map(int, aioredis.__version__.split(".")))
 
 
 def _wrap_close(loop, pool):
@@ -76,6 +80,19 @@ class UnsupportedRedis(Exception):
     pass
 
 
+class BoundedQueue(asyncio.Queue):
+    def put_nowait(self, item):
+        if self.full():
+            # see: https://github.com/django/channels_redis/issues/212
+            # if we actually get into this code block, it likely means that
+            # this specific consumer has stopped reading
+            # if we get into this code block, it's better to drop messages
+            # that exceed the channel layer capacity than to continue to
+            # malloc() forever
+            self.get_nowait()
+        return super(BoundedQueue, self).put_nowait(item)
+
+
 class RedisChannelLayer(BaseChannelLayer):
     """
     Redis channel layer.
@@ -90,7 +107,7 @@ class RedisChannelLayer(BaseChannelLayer):
     def __init__(
         self,
         hosts=None,
-        prefix="asgi:",
+        prefix="asgi",
         expiry=60,
         group_expiry=86400,
         capacity=100,
@@ -118,10 +135,7 @@ class RedisChannelLayer(BaseChannelLayer):
         self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
         # Decide on a unique client prefix to use in ! sections
-        # TODO: ensure uniqueness better, e.g. Redis keys with SETNX
-        self.client_prefix = "".join(
-            random.choice(string.ascii_letters) for i in range(8)
-        )
+        self.client_prefix = uuid.uuid4().hex
         # Set up any encryption objects
         self._setup_encryption(symmetric_encryption_keys)
         # Number of coroutines trying to receive right now
@@ -131,7 +145,9 @@ class RedisChannelLayer(BaseChannelLayer):
         # Event loop they are trying to receive on
         self.receive_event_loop = None
         # Buffered messages by process-local channel name
-        self.receive_buffer = collections.defaultdict(asyncio.Queue)
+        self.receive_buffer = collections.defaultdict(
+            functools.partial(BoundedQueue, self.capacity)
+        )
         # Detached channel cleanup tasks
         self.receive_cleaners = []
         # Per-channel cleanup locks to prevent a receive starting and moving
@@ -210,12 +226,18 @@ class RedisChannelLayer(BaseChannelLayer):
         else:
             index = next(self._send_index_generator)
         async with self.connection(index) as connection:
+            # Discard old messages based on expiry
+            await connection.zremrangebyscore(
+                channel_key, min=0, max=int(time.time()) - int(self.expiry)
+            )
+
             # Check the length of the list before send
             # This can allow the list to leak slightly over capacity, but that's fine.
-            if await connection.llen(channel_key) >= self.get_capacity(channel):
+            if await connection.zcount(channel_key) >= self.get_capacity(channel):
                 raise ChannelFull()
+
             # Push onto the list then set it to expire in case it's not consumed
-            await connection.lpush(channel_key, self.serialize(message))
+            await connection.zadd(channel_key, time.time(), self.serialize(message))
             await connection.expire(channel_key, int(self.expiry))
 
     def _backup_channel_name(self, channel):
@@ -233,9 +255,9 @@ class RedisChannelLayer(BaseChannelLayer):
         # of the main message queue in the proper order; BRPOP must *not* be called
         # because that would deadlock the server
         cleanup_script = """
-            local backed_up = redis.call('LRANGE', ARGV[2], 0, -1)
-            for i = #backed_up, 1, -1 do
-                redis.call('LPUSH', ARGV[1], backed_up[i])
+            local backed_up = redis.call('ZRANGE', ARGV[2], 0, -1, 'WITHSCORES')
+            for i = #backed_up, 1, -2 do
+                redis.call('ZADD', ARGV[1], backed_up[i], backed_up[i - 1])
             end
             redis.call('DEL', ARGV[2])
         """
@@ -245,7 +267,15 @@ class RedisChannelLayer(BaseChannelLayer):
             # and the script executes atomically...
             await connection.eval(cleanup_script, 0, channel, backup_queue)
             # ...and it doesn't matter here either, the message will be safe in the backup.
-            return await connection.brpoplpush(channel, backup_queue, timeout=timeout)
+            result = await connection.bzpopmin(channel, timeout=timeout)
+
+            if result is not None:
+                _, member, timestamp = result
+                await connection.zadd(backup_queue, float(timestamp), member)
+            else:
+                member = None
+
+            return member
 
     async def _clean_receive_backup(self, index, channel):
         """
@@ -253,7 +283,7 @@ class RedisChannelLayer(BaseChannelLayer):
         The result isn't interesting as it was already processed.
         """
         async with self.connection(index) as connection:
-            await connection.brpop(self._backup_channel_name(channel))
+            await connection.zpopmin(self._backup_channel_name(channel))
 
     async def receive(self, channel):
         """
@@ -353,7 +383,7 @@ class RedisChannelLayer(BaseChannelLayer):
                             else:
                                 self.receive_buffer[message_channel].put_nowait(message)
                             message = None
-                        except:
+                        except Exception:
                             del self.receive_buffer[channel]
                             raise
                         finally:
@@ -439,11 +469,10 @@ class RedisChannelLayer(BaseChannelLayer):
         Returns a new channel name that can be used by something in our
         process as a specific channel.
         """
-        # TODO: Guarantee uniqueness better?
         return "%s.%s!%s" % (
             prefix,
             self.client_prefix,
-            "".join(random.choice(string.ascii_letters) for i in range(12)),
+            uuid.uuid4().hex,
         )
 
     ### Flush extension ###
@@ -541,26 +570,31 @@ class RedisChannelLayer(BaseChannelLayer):
         ) = self._map_channel_keys_to_connection(channel_names, message)
 
         for connection_index, channel_redis_keys in connection_to_channel_keys.items():
+            # Discard old messages based on expiry
+            for key in channel_redis_keys:
+                await connection.zremrangebyscore(
+                    key, min=0, max=int(time.time()) - int(self.expiry)
+                )
 
             # Create a LUA script specific for this connection.
             # Make sure to use the message specific to this channel, it is
             # stored in channel_to_message dict and contains the
             # __asgi_channel__ key.
 
-            group_send_lua = (
-                """ local over_capacity = 0
-                    for i=1,#KEYS do
-                        if redis.call('LLEN', KEYS[i]) < tonumber(ARGV[i + #KEYS]) then
-                            redis.call('LPUSH', KEYS[i], ARGV[i])
-                            redis.call('EXPIRE', KEYS[i], %d)
-                        else
-                            over_capacity = over_capacity + 1
-                        end
+            group_send_lua = """
+                local over_capacity = 0
+                local current_time = ARGV[#ARGV - 1]
+                local expiry = ARGV[#ARGV]
+                for i=1,#KEYS do
+                    if redis.call('ZCOUNT', KEYS[i], '-inf', '+inf') < tonumber(ARGV[i + #KEYS]) then
+                        redis.call('ZADD', KEYS[i], current_time, ARGV[i])
+                        redis.call('EXPIRE', KEYS[i], expiry)
+                    else
+                        over_capacity = over_capacity + 1
                     end
-                    return over_capacity
-                    """
-                % self.expiry
-            )
+                end
+                return over_capacity
+            """
 
             # We need to filter the messages to keep those related to the connection
             args = [
@@ -574,6 +608,8 @@ class RedisChannelLayer(BaseChannelLayer):
                 for channel_key in channel_redis_keys
             ]
 
+            args += [time.time(), self.expiry]
+
             # channel_keys does not contain a single redis key more than once
             async with self.connection(connection_index) as connection:
                 channels_over_capacity = await connection.eval(
@@ -582,8 +618,11 @@ class RedisChannelLayer(BaseChannelLayer):
                     *(channel_redis_keys + args),
                 )
                 if channels_over_capacity > 0:
-                    logger.exception(
-                        f"{channels_over_capacity} of {len(channel_names)} channels over capacity in group {group}"
+                    logger.info(
+                        "%s of %s channels over capacity in group %s",
+                        channels_over_capacity,
+                        len(channel_names),
+                        group,
                     )
 
     def _map_channel_to_connection(self, channel_names, message):
@@ -686,12 +725,18 @@ class RedisChannelLayer(BaseChannelLayer):
         value = msgpack.packb(message, use_bin_type=True)
         if self.crypter:
             value = self.crypter.encrypt(value)
-        return value
+
+        # As we use an sorted set to expire messages we need to guarantee uniqueness, with 12 bytes.
+        random_prefix = random.getrandbits(8 * 12).to_bytes(12, "big")
+        return random_prefix + value
 
     def deserialize(self, message):
         """
         Deserializes from a byte string.
         """
+        # Removes the random prefix
+        message = message[12:]
+
         if self.crypter:
             message = self.crypter.decrypt(message, self.expiry + 10)
         return msgpack.unpackb(message, raw=False)

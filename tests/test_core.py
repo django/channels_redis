@@ -1,4 +1,5 @@
 import asyncio
+import random
 
 import async_timeout
 import pytest
@@ -21,6 +22,36 @@ MULTIPLE_TEST_HOSTS = [
     "redis://localhost:6379/8",
     "redis://localhost:6379/9",
 ]
+
+
+async def send_three_messages_with_delay(channel_name, channel_layer, delay):
+    await channel_layer.send(channel_name, {"type": "test.message", "text": "First!"})
+
+    await asyncio.sleep(delay)
+
+    await channel_layer.send(channel_name, {"type": "test.message", "text": "Second!"})
+
+    await asyncio.sleep(delay)
+
+    await channel_layer.send(channel_name, {"type": "test.message", "text": "Third!"})
+
+
+async def group_send_three_messages_with_delay(group_name, channel_layer, delay):
+    await channel_layer.group_send(
+        group_name, {"type": "test.message", "text": "First!"}
+    )
+
+    await asyncio.sleep(delay)
+
+    await channel_layer.group_send(
+        group_name, {"type": "test.message", "text": "Second!"}
+    )
+
+    await asyncio.sleep(delay)
+
+    await channel_layer.group_send(
+        group_name, {"type": "test.message", "text": "Third!"}
+    )
 
 
 @pytest.fixture()
@@ -325,8 +356,10 @@ async def test_group_send_capacity(channel_layer, caplog):
 
     # Make sure number of channels over capacity are logged
     for record in caplog.records:
-        assert record.levelname == "ERROR"
-        assert record.msg == "1 of 1 channels over capacity in group test-group"
+        assert record.levelname == "INFO"
+        assert (
+            record.getMessage() == "1 of 1 channels over capacity in group test-group"
+        )
 
 
 @pytest.mark.asyncio
@@ -365,8 +398,10 @@ async def test_group_send_capacity_multiple_channels(channel_layer, caplog):
 
     # Make sure number of channels over capacity are logged
     for record in caplog.records:
-        assert record.levelname == "ERROR"
-        assert record.msg == "1 of 2 channels over capacity in group test-group"
+        assert record.levelname == "INFO"
+        assert (
+            record.getMessage() == "1 of 2 channels over capacity in group test-group"
+        )
 
 
 @pytest.mark.asyncio
@@ -383,9 +418,199 @@ async def test_receive_cancel(channel_layer):
         task = asyncio.ensure_future(channel_layer.receive(channel))
         await asyncio.sleep(delay)
         task.cancel()
-        delay += 0.001
+        delay += 0.0001
 
         try:
             await asyncio.wait_for(task, None)
         except asyncio.CancelledError:
             pass
+
+
+@pytest.mark.asyncio
+async def test_random_reset__channel_name(channel_layer):
+    """
+    Makes sure resetting random seed does not make us reuse channel names.
+    """
+
+    channel_layer = RedisChannelLayer()
+    random.seed(1)
+    channel_name_1 = await channel_layer.new_channel()
+    random.seed(1)
+    channel_name_2 = await channel_layer.new_channel()
+
+    assert channel_name_1 != channel_name_2
+
+
+@pytest.mark.asyncio
+async def test_random_reset__client_prefix(channel_layer):
+    """
+    Makes sure resetting random seed does not make us reuse client_prefixes.
+    """
+
+    random.seed(1)
+    channel_layer_1 = RedisChannelLayer()
+    random.seed(1)
+    channel_layer_2 = RedisChannelLayer()
+    assert channel_layer_1.client_prefix != channel_layer_2.client_prefix
+
+
+@pytest.mark.asyncio
+async def test_message_expiry__earliest_message_expires(channel_layer):
+    expiry = 3
+    delay = 2
+    channel_layer = RedisChannelLayer(expiry=expiry)
+    channel_name = await channel_layer.new_channel()
+
+    task = asyncio.ensure_future(
+        send_three_messages_with_delay(channel_name, channel_layer, delay)
+    )
+    await asyncio.wait_for(task, None)
+
+    # the first message should have expired, we should only see the second message and the third
+    message = await channel_layer.receive(channel_name)
+    assert message["type"] == "test.message"
+    assert message["text"] == "Second!"
+
+    message = await channel_layer.receive(channel_name)
+    assert message["type"] == "test.message"
+    assert message["text"] == "Third!"
+
+    # Make sure there's no third message even out of order
+    with pytest.raises(asyncio.TimeoutError):
+        async with async_timeout.timeout(1):
+            await channel_layer.receive(channel_name)
+
+
+@pytest.mark.asyncio
+async def test_message_expiry__all_messages_under_expiration_time(channel_layer):
+    expiry = 3
+    delay = 1
+    channel_layer = RedisChannelLayer(expiry=expiry)
+    channel_name = await channel_layer.new_channel()
+
+    task = asyncio.ensure_future(
+        send_three_messages_with_delay(channel_name, channel_layer, delay)
+    )
+    await asyncio.wait_for(task, None)
+
+    # expiry = 3, total delay under 3, all messages there
+    message = await channel_layer.receive(channel_name)
+    assert message["type"] == "test.message"
+    assert message["text"] == "First!"
+
+    message = await channel_layer.receive(channel_name)
+    assert message["type"] == "test.message"
+    assert message["text"] == "Second!"
+
+    message = await channel_layer.receive(channel_name)
+    assert message["type"] == "test.message"
+    assert message["text"] == "Third!"
+
+
+@pytest.mark.asyncio
+async def test_message_expiry__group_send(channel_layer):
+    expiry = 3
+    delay = 2
+    channel_layer = RedisChannelLayer(expiry=expiry)
+    channel_name = await channel_layer.new_channel()
+
+    await channel_layer.group_add("test-group", channel_name)
+
+    task = asyncio.ensure_future(
+        group_send_three_messages_with_delay("test-group", channel_layer, delay)
+    )
+    await asyncio.wait_for(task, None)
+
+    # the first message should have expired, we should only see the second message and the third
+    message = await channel_layer.receive(channel_name)
+    assert message["type"] == "test.message"
+    assert message["text"] == "Second!"
+
+    message = await channel_layer.receive(channel_name)
+    assert message["type"] == "test.message"
+    assert message["text"] == "Third!"
+
+    # Make sure there's no third message even out of order
+    with pytest.raises(asyncio.TimeoutError):
+        async with async_timeout.timeout(1):
+            await channel_layer.receive(channel_name)
+
+
+@pytest.mark.asyncio
+async def test_message_expiry__group_send__one_channel_expires_message(channel_layer):
+    expiry = 3
+    delay = 1
+
+    channel_layer = RedisChannelLayer(expiry=expiry)
+    channel_1 = await channel_layer.new_channel()
+    channel_2 = await channel_layer.new_channel(prefix="channel_2")
+
+    await channel_layer.group_add("test-group", channel_1)
+    await channel_layer.group_add("test-group", channel_2)
+
+    # Let's give channel_1 one additional message and then sleep
+    await channel_layer.send(channel_1, {"type": "test.message", "text": "Zero!"})
+    await asyncio.sleep(2)
+
+    task = asyncio.ensure_future(
+        group_send_three_messages_with_delay("test-group", channel_layer, delay)
+    )
+    await asyncio.wait_for(task, None)
+
+    # message Zero! was sent about 2 + 1 + 1 seconds ago and it should have expired
+    message = await channel_layer.receive(channel_1)
+    assert message["type"] == "test.message"
+    assert message["text"] == "First!"
+
+    message = await channel_layer.receive(channel_1)
+    assert message["type"] == "test.message"
+    assert message["text"] == "Second!"
+
+    message = await channel_layer.receive(channel_1)
+    assert message["type"] == "test.message"
+    assert message["text"] == "Third!"
+
+    # Make sure there's no fourth message even out of order
+    with pytest.raises(asyncio.TimeoutError):
+        async with async_timeout.timeout(1):
+            await channel_layer.receive(channel_1)
+
+    # channel_2 should receive all three messages from group_send
+    message = await channel_layer.receive(channel_2)
+    assert message["type"] == "test.message"
+    assert message["text"] == "First!"
+
+    # the first message should have expired, we should only see the second message and the third
+    message = await channel_layer.receive(channel_2)
+    assert message["type"] == "test.message"
+    assert message["text"] == "Second!"
+
+    message = await channel_layer.receive(channel_2)
+    assert message["type"] == "test.message"
+    assert message["text"] == "Third!"
+
+
+def test_default_group_key_format():
+    channel_layer = RedisChannelLayer()
+    group_name = channel_layer._group_key("test_group")
+    assert group_name == b"asgi:group:test_group"
+
+
+def test_custom_group_key_format():
+    channel_layer = RedisChannelLayer(prefix="test_prefix")
+    group_name = channel_layer._group_key("test_group")
+    assert group_name == b"test_prefix:group:test_group"
+
+
+def test_receive_buffer_respects_capacity():
+    channel_layer = RedisChannelLayer()
+    buff = channel_layer.receive_buffer["test-group"]
+    for i in range(10000):
+        buff.put_nowait(i)
+
+    capacity = 100
+    assert channel_layer.capacity == capacity
+    assert buff.full() is True
+    assert buff.qsize() == capacity
+    messages = [buff.get_nowait() for _ in range(capacity)]
+    assert list(range(9900, 10000)) == messages

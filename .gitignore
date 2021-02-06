@@ -5,5 +5,6 @@ build/
 *.pyc
 /.tox
 .DS_Store
-env/
-.vscode/
+.pytest_cache
+.vscode
+env

@@ -1,3 +1,47 @@
+3.2.0 (2020-10-29)
+------------------
+
+* Adjusted dependency specifiers to allow updating to the latest versions of
+  ``asgiref`` and Channels.
+
+
+3.1.0 (2020-09-06)
+------------------
+
+* Ensured per-channel queues are bounded in size to avoid a slow memory leak if
+  consumers stop reading.
+
+  Queues are bound to the channel layer's configured ``capacity``. You may
+  adjust this to a suitably high value if you were relying on the previously
+  unbounded behaviour.
+
+
+3.0.1 (2020-07-15)
+------------------
+
+* Fixed error in Lua script introduced in 3.0.0.
+
+
+3.0.0 (2020-07-03)
+------------------
+
+* Redis >= 5.0 is now required.
+
+* Updated msgpack requirement to `~=1.0`.
+
+* Ensured channel names are unique using UUIDs.
+
+* Ensured messages are expired even when channel is in constant activity.
+
+* Optimized Redis script caching.
+
+* Reduced group_send failure logging level to reduce log noise.
+
+* Removed trailing `:` from default channel layer `prefix` to avoid double
+  `::` in group keys. (You can restore the old default specifying
+  `prefix="asgi:"` if necessary.)
+
+
 2.4.2 (2020-02-19)
 ------------------
 

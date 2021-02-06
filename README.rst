@@ -1,8 +1,8 @@
 channels_redis
 ==============
 
-.. image:: https://api.travis-ci.org/django/channels_redis.svg
-    :target: https://travis-ci.org/django/channels_redis
+.. image:: https://github.com/django/channels_redis/workflows/Tests/badge.svg
+    :target: https://github.com/django/channels_redis/actions?query=workflow%3ATests
 
 .. image:: https://img.shields.io/pypi/v/channels_redis.svg
     :target: https://pypi.python.org/pypi/channels_redis
@@ -152,7 +152,7 @@ If you're using Django, you may also wish to set this to your site's
 Dependencies
 ------------
 
-Redis >= 2.6 is required for `channels_redis`. It supports Python 3.5.2 and up
+Redis >= 5.0 is required for `channels_redis`. It supports Python 3.5.2 and up
 (3.5.0 or 3.5.1 will not work due to our dependency, ``aioredis``).
 
 Contributing
