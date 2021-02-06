@@ -7,7 +7,6 @@ import hashlib
 import itertools
 import logging
 import random
-import sys
 import time
 import types
 import uuid
