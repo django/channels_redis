@@ -230,7 +230,9 @@ class RedisChannelLayer(BaseChannelLayer):
 
             # Check the length of the list before send
             # This can allow the list to leak slightly over capacity, but that's fine.
-            if await connection.zcount(channel_key) >= self.get_capacity(channel):
+            if await connection.zcount(
+                channel_key, "-inf", "+inf"
+            ) >= self.get_capacity(channel):
                 raise ChannelFull()
 
             # Push onto the list then set it to expire in case it's not consumed
