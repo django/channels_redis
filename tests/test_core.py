@@ -1,5 +1,8 @@
 import asyncio
+import datetime
+import decimal
 import random
+import uuid
 
 import async_timeout
 import pytest
@@ -641,3 +644,21 @@ def test_receive_buffer_respects_capacity():
     assert buff.qsize() == capacity
     messages = [buff.get_nowait() for _ in range(capacity)]
     assert list(range(9900, 10000)) == messages
+
+
+def test_serialize_django_type():
+    channel_layer = RedisChannelLayer()
+    message = {
+        "uuid": uuid.UUID("12345678-1234-5678-1234-567812345678"),
+        "decimal": decimal.Decimal("10.00"),
+        "timedelta": datetime.timedelta(days=1, hours=1, minutes=10, seconds=1),
+        "datetime": datetime.datetime(2021, 2, 9, 10, 0, 0, 0, datetime.timezone.utc),
+    }
+    packed_message = channel_layer.serialize(message)
+    decoded_message = channel_layer.deserialize(packed_message)
+    assert decoded_message == {
+        "uuid": "12345678-1234-5678-1234-567812345678",
+        "decimal": "10.00",
+        "timedelta": "P1DT01H10M01S",
+        "datetime": "2021-02-09T10:00:00Z",
+    }

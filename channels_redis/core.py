@@ -15,6 +15,7 @@ import uuid
 import aioredis
 import msgpack
 
+from django.core.serializers.json import DjangoJSONEncoder
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
 
@@ -248,6 +249,8 @@ class RedisChannelLayer(BaseChannelLayer):
         # Per-channel cleanup locks to prevent a receive starting and moving
         # a message back into the main queue before its cleanup has completed
         self.receive_clean_locks = ChannelLock()
+        # JSON encoder for non-basic-types
+        self._encoder = DjangoJSONEncoder()
 
     def decode_hosts(self, hosts):
         """
@@ -811,7 +814,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Serializes message to a byte string.
         """
-        value = msgpack.packb(message, use_bin_type=True)
+        value = msgpack.packb(message, use_bin_type=True, default=self._encoder.default)
         if self.crypter:
             value = self.crypter.encrypt(value)
 
