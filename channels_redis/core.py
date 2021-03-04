@@ -776,7 +776,7 @@ class RedisChannelLayer(BaseChannelLayer):
             # Get its redis key
             channel_key = self.prefix + channel_non_local_name
             # Have we come across the same redis key?
-            if channel_key not in channel_key_to_message.keys():
+            if channel_key not in channel_key_to_message:
                 # If not, fill the corresponding dicts
                 message = dict(message.items())
                 message["__asgi_channel__"] = [channel]
@@ -789,9 +789,9 @@ class RedisChannelLayer(BaseChannelLayer):
                 channel_key_to_message[channel_key]["__asgi_channel__"].append(channel)
 
         # Now that we know what message needs to be send on a redis key we serialize it
-        for key in channel_key_to_message.keys():
+        for key, value in channel_key_to_message.items():
             # Serialize the message stored for each redis key
-            channel_key_to_message[key] = self.serialize(channel_key_to_message[key])
+            channel_key_to_message[key] = self.serialize(value)
 
         return (
             connection_to_channel_keys,
