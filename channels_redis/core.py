@@ -48,8 +48,9 @@ class ConnectionPool:
     taking into account asyncio event loops.
     """
 
-    def __init__(self, host):
+    def __init__(self, host, master_name=None):
         self.host = host
+        self.master_name = master_name
         self.conn_map = {}
         self.in_use = {}
 
@@ -67,6 +68,13 @@ class ConnectionPool:
             self.conn_map[loop] = []
 
         return self.conn_map[loop], loop
+    
+    async def _connection(self, *args, **kwargs):
+        if self.master_name is None:
+            return await aioredis.create_redis(*args, **kwargs)
+        else:
+            sentinel = await aioredis.create_sentinel(*args, **kwargs)
+            return await sentinel.master_for(self.master_name)
 
     async def pop(self, loop=None):
         """
@@ -75,9 +83,9 @@ class ConnectionPool:
         conns, loop = self._ensure_loop(loop)
         if not conns:
             if sys.version_info >= (3, 8, 0) and AIOREDIS_VERSION >= (1, 3, 1):
-                conn = await aioredis.create_redis(**self.host)
+                conn = await self._connection(**self.host)
             else:
-                conn = await aioredis.create_redis(**self.host, loop=loop)
+                conn = await self._connection(**self.host, loop=loop)
             conns.append(conn)
         conn = conns.pop()
         if conn.closed:
@@ -207,6 +215,7 @@ class RedisChannelLayer(BaseChannelLayer):
     def __init__(
         self,
         hosts=None,
+        master_name=None,
         prefix="asgi",
         expiry=60,
         group_expiry=86400,
@@ -222,10 +231,11 @@ class RedisChannelLayer(BaseChannelLayer):
         self.prefix = prefix
         assert isinstance(self.prefix, str), "Prefix must be unicode"
         # Configure the host objects
+        self.master_name = master_name
         self.hosts = self.decode_hosts(hosts)
         self.ring_size = len(self.hosts)
         # Cached redis connection pools and the event loop they are from
-        self.pools = [ConnectionPool(host) for host in self.hosts]
+        self.pools = [ConnectionPool(host, master_name) for host in self.hosts]
         # Normal channels choose a host index by cycling through the available hosts
         self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
@@ -264,11 +274,15 @@ class RedisChannelLayer(BaseChannelLayer):
             )
         # Decode each hosts entry into a kwargs dict
         result = []
-        for entry in hosts:
-            if isinstance(entry, dict):
-                result.append(entry)
-            else:
-                result.append({"address": entry})
+        if self.master_name is None:
+            for entry in hosts:
+                if isinstance(entry, dict):
+                    result.append(entry)
+                else:
+                    result.append({"address": entry})
+        else:
+            # Sentinels must be passed as list of tuples
+            result.append({"sentinels": hosts})
         return result
 
     def _setup_encryption(self, symmetric_encryption_keys):
