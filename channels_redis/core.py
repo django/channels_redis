@@ -53,6 +53,7 @@ class ConnectionPool:
         self.master_name = master_name
         self.conn_map = {}
         self.in_use = {}
+        self.pool = None
 
     def _ensure_loop(self, loop):
         """
@@ -74,7 +75,7 @@ class ConnectionPool:
             return await aioredis.create_redis(*args, **kwargs)
         else:
             sentinel = await aioredis.create_sentinel(*args, **kwargs)
-            return await sentinel.master_for(self.master_name)
+            return sentinel.master_for(self.master_name)
 
     async def pop(self, loop=None):
         """
