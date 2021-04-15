@@ -662,10 +662,12 @@ class RedisChannelLayer(BaseChannelLayer):
 
         for connection_index, channel_redis_keys in connection_to_channel_keys.items():
             # Discard old messages based on expiry
+            pipe = connection.pipeline()
             for key in channel_redis_keys:
-                await connection.zremrangebyscore(
+                pipe.zremrangebyscore(
                     key, min=0, max=int(time.time()) - int(self.expiry)
                 )
+            await pipe.execute()
 
             # Create a LUA script specific for this connection.
             # Make sure to use the message specific to this channel, it is
