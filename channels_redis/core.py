@@ -120,8 +120,9 @@ class ConnectionPool:
                 self.sentinel_map[conn].close()
                 await self.sentinel_map[conn].wait_closed()
                 del self.sentinel_map[conn]
-            conn.close()
-            await conn.wait_closed()
+            else:
+                conn.close()
+                await conn.wait_closed()
             del self.conn_map[loop]
 
     async def close(self):
