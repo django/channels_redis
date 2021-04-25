@@ -51,7 +51,7 @@ class ConnectionPool:
     def __init__(self, host, master_name=None):
         self.host = host
         self.master_name = master_name
-        self.pool_map = {}
+        self.conn_map = {}
         self.sentinel_map = {}
 
     async def create_pool(self, loop):
@@ -62,10 +62,10 @@ class ConnectionPool:
             return await aioredis.create_redis_pool(**kwargs)
         else:
             sentinel = await aioredis.sentinel.create_sentinel(**kwargs)
-            pool = sentinel.master_for(self.master_name)
-            self.sentinel_map[pool] = sentinel
-        self.pool_map[loop] = pool
-        return pool
+            conn = sentinel.master_for(self.master_name)
+            self.sentinel_map[conn] = sentinel
+        self.conn_map[loop] = conn
+        return conn
 
     def _ensure_loop(self, loop):
         """
@@ -74,22 +74,22 @@ class ConnectionPool:
         if loop is None:
             loop = asyncio.get_event_loop()
 
-        if loop not in self.pool_map:
+        if loop not in self.conn_map:
             # Swap the loop's close method with our own so we get
             # a chance to do some cleanup.
             _wrap_close(loop, self)
-            self.pool_map[loop] = None
+            self.conn_map[loop] = None
 
-        return self.pool_map[loop], loop
+        return self.conn_map[loop], loop
 
     async def pop(self, loop=None):
         """
         Get pool for the given identifier and loop.
         """
-        pool, loop = self._ensure_loop(loop)
-        if pool is None:
-            pool = await self.create_pool(loop)
-        return pool
+        conn, loop = self._ensure_loop(loop)
+        if conn is None:
+            conn = await self.create_pool(loop)
+        return conn
 
     def push(self, conn):
         """
@@ -107,36 +107,36 @@ class ConnectionPool:
         """
         Clear all pools.
         """
-        self.pool_map = {}
+        self.conn_map = {}
         self.sentinel_map = {}
 
     async def close_loop(self, loop):
         """
         Close all pools owned by the given loop.
         """
-        if loop in self.pool_map:
-            pool = self.pool_map[loop]
-            if pool in self.sentinel_map:
-                self.sentinel_map[pool].close()
-                await self.sentinel_map[pool].wait_closed()
-                del self.sentinel_map[pool]
-            pool.close()
-            await pool.wait_closed()
-            del self.pool_map[loop]
+        if loop in self.conn_map:
+            conn = self.conn_map[loop]
+            if conn in self.sentinel_map:
+                self.sentinel_map[conn].close()
+                await self.sentinel_map[conn].wait_closed()
+                del self.sentinel_map[conn]
+            conn.close()
+            await conn.wait_closed()
+            del self.conn_map[loop]
 
     async def close(self):
         """
         Close all pools.
         """
-        pool_map = self.pool_map
+        conn_map = self.conn_map
         sentinel_map = self.sentinel_map
         self.reset()
-        for pool in pool_map.values():
-            if pool in sentinel_map:
-                sentinel_map[pool].close()
-                await sentinel_map[pool].wait_closed()
-            pool.close()
-            await pool.wait_closed()
+        for conn in conn_map.values():
+            if conn in sentinel_map:
+                sentinel_map[conn].close()
+                await sentinel_map[conn].wait_closed()
+            conn.close()
+            await conn.wait_closed()
 
 
 class ChannelLock:
