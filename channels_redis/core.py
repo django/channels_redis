@@ -48,96 +48,95 @@ class ConnectionPool:
     taking into account asyncio event loops.
     """
 
-    def __init__(self, host):
+    def __init__(self, host, master_name=None):
         self.host = host
-        self.conn_map = {}
-        self.in_use = {}
+        self.master_name = master_name
+        self.pool_map = {}
+        self.sentinel_map = {}
+
+    async def create_pool(self, loop):
+        kwargs = {**self.host, "minsize": 1, "maxsize": 999999999}
+        if sys.version_info >= (3, 8, 0) and AIOREDIS_VERSION >= (1, 3, 1):
+            kwargs["loop"] = loop
+        if self.master_name is None:
+            return await aioredis.create_redis_pool(**kwargs)
+        else:
+            sentinel = await aioredis.sentinel.create_sentinel(**kwargs)
+            pool = sentinel.master_for(self.master_name)
+            self.sentinel_map[pool] = sentinel
+        self.pool_map[loop] = pool
+        return pool
 
     def _ensure_loop(self, loop):
         """
-        Get connection list for the specified loop.
+        Get pool for the specified loop.
         """
         if loop is None:
             loop = asyncio.get_event_loop()
 
-        if loop not in self.conn_map:
+        if loop not in self.pool_map:
             # Swap the loop's close method with our own so we get
             # a chance to do some cleanup.
             _wrap_close(loop, self)
-            self.conn_map[loop] = []
+            self.pool_map[loop] = None
 
-        return self.conn_map[loop], loop
+        return self.pool_map[loop], loop
 
     async def pop(self, loop=None):
         """
-        Get a connection for the given identifier and loop.
+        Get pool for the given identifier and loop.
         """
-        conns, loop = self._ensure_loop(loop)
-        if not conns:
-            if sys.version_info >= (3, 8, 0) and AIOREDIS_VERSION >= (1, 3, 1):
-                conn = await aioredis.create_redis(**self.host)
-            else:
-                conn = await aioredis.create_redis(**self.host, loop=loop)
-            conns.append(conn)
-        conn = conns.pop()
-        if conn.closed:
-            conn = await self.pop(loop=loop)
-            return conn
-        self.in_use[conn] = loop
-        return conn
+        pool, loop = self._ensure_loop(loop)
+        if pool is None:
+            pool = await self.create_pool(loop)
+        return pool
 
     def push(self, conn):
         """
         Return a connection to the pool.
         """
-        loop = self.in_use[conn]
-        del self.in_use[conn]
-        if loop is not None:
-            conns, _ = self._ensure_loop(loop)
-            conns.append(conn)
+        pass
 
     def conn_error(self, conn):
         """
         Handle a connection that produced an error.
         """
-        conn.close()
-        del self.in_use[conn]
+        pass
 
     def reset(self):
         """
-        Clear all connections from the pool.
+        Clear all pools.
         """
-        self.conn_map = {}
-        self.in_use = {}
+        self.pool_map = {}
+        self.sentinel_map = {}
 
     async def close_loop(self, loop):
         """
-        Close all connections owned by the pool on the given loop.
+        Close all pools owned by the given loop.
         """
-        if loop in self.conn_map:
-            for conn in self.conn_map[loop]:
-                conn.close()
-                await conn.wait_closed()
-            del self.conn_map[loop]
-
-        for k, v in self.in_use.items():
-            if v is loop:
-                self.in_use[k] = None
+        if loop in self.pool_map:
+            pool = self.pool_map[loop]
+            if pool in self.sentinel_map:
+                self.sentinel_map[pool].close()
+                await self.sentinel_map[pool].wait_closed()
+                del self.sentinel_map[pool]
+            pool.close()
+            await pool.wait_closed()
+            del self.pool_map[loop]
 
     async def close(self):
         """
-        Close all connections owned by the pool.
+        Close all pools.
         """
-        conn_map = self.conn_map
-        in_use = self.in_use
+        pool_map = self.pool_map
+        sentinel_map = self.sentinel_map
         self.reset()
-        for conns in conn_map.values():
-            for conn in conns:
-                conn.close()
-                await conn.wait_closed()
-        for conn in in_use:
-            conn.close()
-            await conn.wait_closed()
+        for pool in pool_map.values():
+            if pool in sentinel_map:
+                sentinel_map[pool].close()
+                await sentinel_map[pool].wait_closed()
+            pool.close()
+            await pool.wait_closed()
 
 
 class ChannelLock:
@@ -207,6 +206,7 @@ class RedisChannelLayer(BaseChannelLayer):
     def __init__(
         self,
         hosts=None,
+        master_name=None,
         prefix="asgi",
         expiry=60,
         group_expiry=86400,
@@ -222,10 +222,11 @@ class RedisChannelLayer(BaseChannelLayer):
         self.prefix = prefix
         assert isinstance(self.prefix, str), "Prefix must be unicode"
         # Configure the host objects
+        self.master_name = master_name
         self.hosts = self.decode_hosts(hosts)
         self.ring_size = len(self.hosts)
         # Cached redis connection pools and the event loop they are from
-        self.pools = [ConnectionPool(host) for host in self.hosts]
+        self.pools = [ConnectionPool(host, master_name) for host in self.hosts]
         # Normal channels choose a host index by cycling through the available hosts
         self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
@@ -264,11 +265,15 @@ class RedisChannelLayer(BaseChannelLayer):
             )
         # Decode each hosts entry into a kwargs dict
         result = []
-        for entry in hosts:
-            if isinstance(entry, dict):
-                result.append(entry)
-            else:
-                result.append({"address": entry})
+        if self.master_name is None:
+            for entry in hosts:
+                if isinstance(entry, dict):
+                    result.append(entry)
+                else:
+                    result.append({"address": entry})
+        else:
+            # Sentinels must be passed as list of tuples
+            result.append({"sentinels": hosts})
         return result
 
     def _setup_encryption(self, symmetric_encryption_keys):
