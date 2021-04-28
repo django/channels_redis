@@ -1,10 +1,10 @@
 import asyncio
-import aioredis
-
 import sys
-import uuid
-import msgpack
 import traceback
+import uuid
+
+import aioredis
+import msgpack
 
 
 class RedisPubSubChannelLayer:
