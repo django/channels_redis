@@ -12,13 +12,10 @@ class RedisPubSubChannelLayer:
     Channel Layer that uses Redis's pub/sub functionality.
     """
 
-    def __init__(
-        self,
-        hosts,
-        prefix="asgi",
-        **kwargs
-    ):
-        assert isinstance(hosts, list) and len(hosts) > 0, "`hosts` must be a list with at least one Redis server"
+    def __init__(self, hosts, prefix="asgi", **kwargs):
+        assert (
+            isinstance(hosts, list) and len(hosts) > 0
+        ), "`hosts` must be a list with at least one Redis server"
 
         self.prefix = prefix
 
@@ -53,7 +50,7 @@ class RedisPubSubChannelLayer:
         takes what I believe is intentional abuse in
         order to have colliding names.
         """
-        return f'{self.prefix}__group__{group}'
+        return f"{self.prefix}__group__{group}"
 
     extensions = ["groups"]
 
@@ -73,7 +70,7 @@ class RedisPubSubChannelLayer:
         Returns a new channel name that can be used by a consumer in our
         process as a specific channel.
         """
-        channel = f'{self.prefix}{prefix}{uuid.uuid4().hex}'
+        channel = f"{self.prefix}{prefix}{uuid.uuid4().hex}"
         self.channels[channel] = asyncio.Queue()
         shard = self._get_shard(channel)
         await shard.subscribe(channel)
@@ -168,7 +165,6 @@ def on_close_noop(sender, exc=None):
 
 
 class RedisSingleShardConnection:
-
     def __init__(self, host, channel_layer):
         self.host = host
         self.channel_layer = channel_layer
@@ -215,7 +211,7 @@ class RedisSingleShardConnection:
                     except Exception:
                         print(
                             f"Failed to connect to Redis publish host: {self.host}; will try again in 1 second...",
-                            file=sys.stderr
+                            file=sys.stderr,
                         )
                         await asyncio.sleep(1)
             return self._pub_conn
@@ -252,14 +248,16 @@ class RedisSingleShardConnection:
                     except Exception:
                         print(
                             f"Failed to connect to Redis subscribe host: {self.host}; will try again in 1 second...",
-                            file=sys.stderr
+                            file=sys.stderr,
                         )
                         await asyncio.sleep(1)
                 self._receiver = aioredis.pubsub.Receiver(on_close=on_close_noop)
                 self._receive_task = asyncio.create_task(self._do_receiving())
                 if len(self._subscribed_to) > 0:
                     # Do our best to recover by resubscribing to the channels that we were previously subscribed to.
-                    resubscribe_to = [self._receiver.channel(name) for name in self._subscribed_to]
+                    resubscribe_to = [
+                        self._receiver.channel(name) for name in self._subscribed_to
+                    ]
                     await self._sub_conn.subscribe(*resubscribe_to)
             return self._sub_conn
 
