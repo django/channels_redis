@@ -120,6 +120,12 @@ class RedisPubSubChannelLayer:
         """
         Adds the channel name to a group.
         """
+        if channel not in self.channels:
+            raise RuntimeError(
+                "You can only call group_add() on channels that exist in-process.\n"
+                "Consumers are encouraged to use the common pattern:\n"
+                f"   self.channel_layer.group_add({repr(group)}, self.channel_name)"
+            )
         group_channel = self._get_group_channel_name(group)
         if group_channel not in self.groups:
             self.groups[group_channel] = set()
