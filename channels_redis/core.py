@@ -43,14 +43,15 @@ def _wrap_close(loop, pool):
 class ConnectionPool:
     """
     Connection pool manager for the channel layer.
-
     It manages a set of connections for the given host specification and
     taking into account asyncio event loops.
     """
 
     def __init__(self, host):
-        self.host = host
+        self.host = host.copy()
+        self.master_name = self.host.pop("master_name", None)
         self.conn_map = {}
+        self.sentinel_map = {}
         self.in_use = {}
 
     def _ensure_loop(self, loop):
@@ -68,16 +69,25 @@ class ConnectionPool:
 
         return self.conn_map[loop], loop
 
+    async def create_conn(self, loop):
+        kwargs = {"minsize": 1, "maxsize": 100, **self.host}
+        if sys.version_info >= (3, 8, 0) and AIOREDIS_VERSION >= (1, 3, 1):
+            kwargs["loop"] = loop
+        if self.master_name is None:
+            return await aioredis.create_redis_pool(**kwargs)
+        else:
+            sentinel = await aioredis.sentinel.create_sentinel(**kwargs, timeout=5)
+            conn = sentinel.master_for(self.master_name)
+            self.sentinel_map[conn] = sentinel
+        return conn
+
     async def pop(self, loop=None):
         """
         Get a connection for the given identifier and loop.
         """
         conns, loop = self._ensure_loop(loop)
         if not conns:
-            if sys.version_info >= (3, 8, 0) and AIOREDIS_VERSION >= (1, 3, 1):
-                conn = await aioredis.create_redis(**self.host)
-            else:
-                conn = await aioredis.create_redis(**self.host, loop=loop)
+            conn = await self.create_conn(loop)
             conns.append(conn)
         conn = conns.pop()
         if conn.closed:
@@ -101,6 +111,9 @@ class ConnectionPool:
         Handle a connection that produced an error.
         """
         conn.close()
+        if conn in self.sentinel_map:
+            self.sentinel_map[conn].close()
+            del self.sentinel_map[conn]
         del self.in_use[conn]
 
     def reset(self):
@@ -108,7 +121,19 @@ class ConnectionPool:
         Clear all connections from the pool.
         """
         self.conn_map = {}
+        self.sentinel_map = {}
         self.in_use = {}
+
+    async def _close_conn(self, conn, sentinel_map=None):
+        if sentinel_map is None:
+            sentinel_map = self.sentinel_map
+        if conn in sentinel_map:
+            sentinel_map[conn].close()
+            await sentinel_map[conn].wait_closed()
+            del sentinel_map[conn]
+        else:
+            conn.close()
+            await conn.wait_closed()
 
     async def close_loop(self, loop):
         """
@@ -116,12 +141,12 @@ class ConnectionPool:
         """
         if loop in self.conn_map:
             for conn in self.conn_map[loop]:
-                conn.close()
-                await conn.wait_closed()
+                await self._close_conn(conn)
             del self.conn_map[loop]
 
         for k, v in self.in_use.items():
             if v is loop:
+                await self._close_conn(k)
                 self.in_use[k] = None
 
     async def close(self):
@@ -129,15 +154,14 @@ class ConnectionPool:
         Close all connections owned by the pool.
         """
         conn_map = self.conn_map
+        sentinel_map = self.sentinel_map
         in_use = self.in_use
         self.reset()
         for conns in conn_map.values():
             for conn in conns:
-                conn.close()
-                await conn.wait_closed()
+                await self._close_conn(conn, sentinel_map)
         for conn in in_use:
-            conn.close()
-            await conn.wait_closed()
+            await self._close_conn(conn, sentinel_map)
 
 
 class ChannelLock:
@@ -207,6 +231,7 @@ class RedisChannelLayer(BaseChannelLayer):
     def __init__(
         self,
         hosts=None,
+        master_name=None,
         prefix="asgi",
         expiry=60,
         group_expiry=86400,
@@ -262,6 +287,7 @@ class RedisChannelLayer(BaseChannelLayer):
             raise ValueError(
                 "You must pass a list of Redis hosts, even if there is only one."
             )
+
         # Decode each hosts entry into a kwargs dict
         result = []
         for entry in hosts:
