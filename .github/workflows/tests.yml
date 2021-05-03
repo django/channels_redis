@@ -18,7 +18,6 @@ jobs:
         - 3.7
         - 3.8
         - 3.9
-
     services:
       redis:
         image: redis
@@ -29,6 +28,19 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      sentinel:
+        image: bitnami/redis-sentinel
+        ports:
+          - 26379:26379
+        options: >-
+          --health-cmd "redis-cli -p 26379 ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        env:
+          REDIS_MASTER_HOST: redis
+          REDIS_MASTER_SET: sentinel
+          REDIS_SENTINEL_QUORUM: "1"
 
     steps:
       - uses: actions/checkout@v2
