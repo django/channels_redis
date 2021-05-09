@@ -242,7 +242,9 @@ class RedisSingleShardConnection:
                         # This is the normal case, that `asyncio.CancelledError` is throw. All good.
                         pass
                     except BaseException:
-                        logger.exception("Unexpected exception while canceling the receiver task:")
+                        logger.exception(
+                            "Unexpected exception while canceling the receiver task:"
+                        )
                         # Don't re-raise here. We don't actually care why `_receive_task` didn't exit cleanly.
                     self._receive_task = None
                 while self._sub_conn is None:
