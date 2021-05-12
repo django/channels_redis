@@ -53,7 +53,7 @@ class RedisPubSubChannelLayer:
         """
         return f"{self.prefix}__group__{group}"
 
-    extensions = ["groups"]
+    extensions = ["groups", "flush"]
 
     ################################################################################
     # Channel layer API
@@ -158,6 +158,16 @@ class RedisPubSubChannelLayer:
         shard = self._get_shard(group_channel)
         await shard.publish(group_channel, message)
 
+    ################################################################################
+    # Flush extension
+    ################################################################################
+
+    async def flush(self):
+        self.channels = {}
+        self.groups = {}
+        for shard in self._shards:
+            await shard.flush()
+
 
 def on_close_noop(sender, exc=None):
     """
@@ -198,6 +208,10 @@ class RedisSingleShardConnection:
             self._subscribed_to.remove(channel)
             conn = await self._get_sub_conn()
             await conn.unsubscribe(channel)
+
+    async def flush(self):
+        for channel in list(self._subscribed_to):  # copy, else we modify during enumeration which is dangerous
+            await self.unsubscribe(channel)
 
     async def _get_pub_conn(self):
         """
