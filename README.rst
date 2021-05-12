@@ -35,7 +35,7 @@ Or, you can use the alternate implementation which uses Redis Pub/Sub::
 
     CHANNEL_LAYERS = {
         "default": {
-            "BACKEND": "channels_redis.alt.RedisPubSubChannelLayer",
+            "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
             "CONFIG": {
                 "hosts": [("localhost", 6379)],
             },
