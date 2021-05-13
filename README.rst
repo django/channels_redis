@@ -31,6 +31,17 @@ Set up the channel layer in your Django settings file like so::
         },
     }
 
+Or, you can use the alternate implementation which uses Redis Pub/Sub::
+
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
+            "CONFIG": {
+                "hosts": [("localhost", 6379)],
+            },
+        },
+    }
+
 Possible options for ``CONFIG`` are listed below.
 
 ``hosts``
