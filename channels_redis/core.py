@@ -833,11 +833,20 @@ class RedisChannelLayer(BaseChannelLayer):
 
     ### Serialization ###
 
+    def default_serialize(self, value):
+        """
+        Gets called for objects that can’t otherwise be serialized.
+        It should return a JSON encodable version of the object or raise TypeError.
+
+        It should be overriden when an alternative default serialization is required.
+        """
+        raise TypeError
+
     def serialize(self, message):
         """
         Serializes message to a byte string.
         """
-        value = msgpack.packb(message, use_bin_type=True)
+        value = msgpack.packb(message, use_bin_type=True, default=self.default_serialize)
         if self.crypter:
             value = self.crypter.encrypt(value)
 
