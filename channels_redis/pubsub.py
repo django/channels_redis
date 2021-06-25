@@ -20,6 +20,7 @@ class RedisPubSubChannelLayer:
             isinstance(hosts, list) and len(hosts) > 0
         ), "`hosts` must be a list with at least one Redis server"
 
+        self.hosts = hosts
         self.prefix = prefix
 
         # Each consumer gets its own *specific* channel, created with the `new_channel()` method.
@@ -31,17 +32,23 @@ class RedisPubSubChannelLayer:
         self.groups = {}
 
         # For each host, we create a `RedisSingleShardConnection` to manage the connection to that host.
-        self._shards = [RedisSingleShardConnection(host, self) for host in hosts]
+        self._shards = {}
 
     def _get_shard(self, channel_or_group_name):
         """
         Return the shard that is used exclusively for this channel or group.
         """
-        if len(self._shards) == 1:
+        loop = asyncio.get_event_loop()
+        if loop not in self._shards:
+            self._shards[loop] = [
+                RedisSingleShardConnection(host, self) for host in self.hosts
+            ]
+        shards = self._shards[loop]
+        if len(shards) == 1:
             # Avoid the overhead of hashing and modulo when it is unnecessary.
-            return self._shards[0]
-        shard_index = abs(hash(channel_or_group_name)) % len(self._shards)
-        return self._shards[shard_index]
+            return shards[0]
+        shard_index = abs(hash(channel_or_group_name)) % len(shards)
+        return shards[shard_index]
 
     def _get_group_channel_name(self, group):
         """
@@ -172,8 +179,9 @@ class RedisPubSubChannelLayer:
         """
         self.channels = {}
         self.groups = {}
-        for shard in self._shards:
-            await shard.flush()
+        for shards in self._shards.values():
+            for shard in shards:
+                await shard.flush()
 
 
 def on_close_noop(sender, exc=None):
