@@ -190,10 +190,12 @@ def on_close_noop(sender, exc=None):
 
 class RedisSingleShardConnection:
     def __init__(self, host, channel_layer):
-        self.host = host
+        self.host = host.copy() if type(host) is dict else {"address": host}
+        self.master_name = self.host.pop("master_name", None)
         self.channel_layer = channel_layer
         self._subscribed_to = set()
         self._lock = None
+        self._redis = None
         self._pub_conn = None
         self._sub_conn = None
         self._receiver = None
@@ -230,10 +232,12 @@ class RedisSingleShardConnection:
         if self._sub_conn is not None:
             self._sub_conn.close()
             await self._sub_conn.wait_closed()
+            self._put_redis_conn(self._sub_conn)
             self._sub_conn = None
         if self._pub_conn is not None:
             self._pub_conn.close()
             await self._pub_conn.wait_closed()
+            self._put_redis_conn(self._pub_conn)
             self._pub_conn = None
         self._subscribed_to = set()
 
@@ -247,11 +251,13 @@ class RedisSingleShardConnection:
             self._lock = asyncio.Lock()
         async with self._lock:
             if self._pub_conn is not None and self._pub_conn.closed:
+                self._put_redis_conn(self._pub_conn)
                 self._pub_conn = None
             while self._pub_conn is None:
                 try:
-                    self._pub_conn = await aioredis.create_redis(self.host)
+                    self._pub_conn = await self._get_redis_conn()
                 except BaseException:
+                    self._put_redis_conn(self._pub_conn)
                     logger.warning(
                         f"Failed to connect to Redis publish host: {self.host}; will try again in 1 second..."
                     )
@@ -270,6 +276,7 @@ class RedisSingleShardConnection:
             self._lock = asyncio.Lock()
         async with self._lock:
             if self._sub_conn is not None and self._sub_conn.closed:
+                self._put_redis_conn(self._sub_conn)
                 self._sub_conn = None
             if self._sub_conn is None:
                 if self._receive_task is not None:
@@ -287,8 +294,9 @@ class RedisSingleShardConnection:
                     self._receive_task = None
                 while self._sub_conn is None:
                     try:
-                        self._sub_conn = await aioredis.create_redis(self.host)
+                        self._sub_conn = await self._get_redis_conn()
                     except BaseException:
+                        self._put_redis_conn(self._sub_conn)
                         logger.warning(
                             f"Failed to connect to Redis subscribe host: {self.host}; will try again in 1 second..."
                         )
@@ -316,6 +324,31 @@ class RedisSingleShardConnection:
                 for channel_name in self.channel_layer.groups[name]:
                     if channel_name in self.channel_layer.channels:
                         self.channel_layer.channels[channel_name].put_nowait(message)
+
+    async def _ensure_redis(self):
+        if self._redis is None:
+            if self.master_name is None:
+                self._redis = await aioredis.create_redis_pool(**self.host)
+            else:
+                # aioredis default timeout is way too low
+                self._redis = await aioredis.sentinel.create_sentinel(
+                    timeout=2, **self.host
+                )
+
+    def _get_aioredis_pool(self):
+        if self.master_name is None:
+            return self._redis._pool_or_conn
+        else:
+            return self._redis.master_for(self.master_name)._pool_or_conn
+
+    async def _get_redis_conn(self):
+        await self._ensure_redis()
+        conn = await self._get_aioredis_pool().acquire()
+        return aioredis.Redis(conn)
+
+    def _put_redis_conn(self, conn):
+        if conn:
+            self._get_aioredis_pool().release(conn._pool_or_conn)
 
     async def _do_keepalive(self):
         """
