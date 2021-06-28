@@ -13,7 +13,9 @@ class RedisPubSubChannelLayer:
     Channel Layer that uses Redis's pub/sub functionality.
     """
 
-    def __init__(self, hosts=None, prefix="asgi", **kwargs):
+    def __init__(
+        self, hosts=None, prefix="asgi", on_disconnect=None, on_reconnect=None, **kwargs
+    ):
         if hosts is None:
             hosts = [("localhost", 6379)]
         assert (
@@ -21,6 +23,9 @@ class RedisPubSubChannelLayer:
         ), "`hosts` must be a list with at least one Redis server"
 
         self.prefix = prefix
+
+        self.on_disconnect = on_disconnect
+        self.on_reconnect = on_reconnect
 
         # Each consumer gets its own *specific* channel, created with the `new_channel()` method.
         # This dict maps `channel_name` to a queue of messages for that channel.
@@ -278,6 +283,7 @@ class RedisSingleShardConnection:
             if self._sub_conn is not None and self._sub_conn.closed:
                 self._put_redis_conn(self._sub_conn)
                 self._sub_conn = None
+                self._notify_consumers(self.channel_layer.on_disconnect)
             if self._sub_conn is None:
                 if self._receive_task is not None:
                     self._receive_task.cancel()
@@ -309,6 +315,7 @@ class RedisSingleShardConnection:
                         self._receiver.channel(name) for name in self._subscribed_to
                     ]
                     await self._sub_conn.subscribe(*resubscribe_to)
+                    self._notify_consumers(self.channel_layer.on_reconnect)
             return self._sub_conn
 
     async def _do_receiving(self):
@@ -324,6 +331,11 @@ class RedisSingleShardConnection:
                 for channel_name in self.channel_layer.groups[name]:
                     if channel_name in self.channel_layer.channels:
                         self.channel_layer.channels[channel_name].put_nowait(message)
+
+    def _notify_consumers(self, mtype):
+        if mtype is not None:
+            for channel in self.channel_layer.channels.values():
+                channel.put_nowait(msgpack.packb({"type": mtype}))
 
     async def _ensure_redis(self):
         if self._redis is None:

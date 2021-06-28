@@ -51,9 +51,8 @@ The server(s) to connect to, as either URIs, ``(host, port)`` tuples, or dicts c
 Defaults to ``['localhost', 6379]``. Pass multiple hosts to enable sharding,
 but note that changing the host list will lose some sharded data.
 
-Sentinel connections require dicts conforming to `create_sentinel
-<https://aioredis.readthedocs.io/en/v1.3.0/sentinel.html#aioredis.sentinel.
-create_sentinel>` with an additional `master_name` key specifying the Sentinel
+Sentinel connections require dicts conforming to `create_sentinel <https://aioredis.readthedocs.io/en/v1.3.0/sentinel.html#aioredis.sentinel.create_sentinel>`_
+with an additional `master_name` key specifying the Sentinel
 master set. Plain Redis and Sentinel connections can be mixed and matched if
 sharding.
 
@@ -165,6 +164,32 @@ If you're using Django, you may also wish to set this to your site's
         },
     }
 
+``on_disconnect`` / ``on_reconnect``
+~~~~~~~~~~~~
+
+The PubSub layer, which maintains long-running connections to Redis, can drop messages in the event of a network partition.
+To handle such situations the PubSub layer accepts optional arguments which will notify consumers of Redis disconnect/reconnect events.
+A common use-case is for consumers to ensure that they perform a full state re-sync to ensure that no messages have been missed.
+
+.. code-block:: python
+
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
+            "CONFIG": {
+                "hosts": [...],
+                "on_disconnect": "redis.disconnect",
+            },
+        },
+    }
+
+
+And then in your channels consumer, you can implement the handler:
+
+.. code-block:: python
+
+    async def redis_disconnect(self, *args):
+        # Handle disconnect
 
 Dependencies
 ------------
