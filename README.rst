@@ -7,10 +7,16 @@ channels_redis
 .. image:: https://img.shields.io/pypi/v/channels_redis.svg
     :target: https://pypi.python.org/pypi/channels_redis
 
-A Django Channels channel layer that uses Redis as its backing store, and supports
-both a single-server and sharded configurations, as well as group support. Requires
-Python 3.6 or higher to function correctly (3.5 will look like it works, but have
-random errors).
+Provides Django Channels channel layers that use Redis as a backing store.
+
+There are two available implementations:
+
+* ``RedisChannelLayer`` is the orignal layer, and implements channel and group
+  handling itself.
+* ``RedisPubSubChannelLayer`` is newer and leverages Redis Pub/Sub for message
+  dispatch.
+
+Both layers support a single-server and sharded configurations.
 
 **Note:** Prior versions of this package were called ``asgi_redis`` and are
 still available under PyPI as that name if you need them for Channels 1.x projects.
@@ -165,7 +171,7 @@ If you're using Django, you may also wish to set this to your site's
     }
 
 ``on_disconnect`` / ``on_reconnect``
-~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The PubSub layer, which maintains long-running connections to Redis, can drop messages in the event of a network partition.
 To handle such situations the PubSub layer accepts optional arguments which will notify consumers of Redis disconnect/reconnect events.
@@ -194,8 +200,8 @@ And then in your channels consumer, you can implement the handler:
 Dependencies
 ------------
 
-Redis >= 5.0 is required for `channels_redis`. It supports Python 3.5.2 and up
-(3.5.0 or 3.5.1 will not work due to our dependency, ``aioredis``).
+Redis >= 5.0 is required for `channels_redis`. Python 3.6 or higher is required.
+
 
 Contributing
 ------------
