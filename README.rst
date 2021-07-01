@@ -14,7 +14,8 @@ There are two available implementations:
 * ``RedisChannelLayer`` is the orignal layer, and implements channel and group
   handling itself.
 * ``RedisPubSubChannelLayer`` is newer and leverages Redis Pub/Sub for message
-  dispatch.
+  dispatch. This layer is currently at *Beta* status, meaning it may be subject
+  to breaking changes whilst it matures.
 
 Both layers support a single-server and sharded configurations.
 
