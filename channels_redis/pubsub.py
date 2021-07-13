@@ -1,5 +1,8 @@
 import asyncio
+import functools
 import logging
+import sys
+import types
 import uuid
 
 import aioredis
@@ -8,7 +11,68 @@ import msgpack
 logger = logging.getLogger(__name__)
 
 
+if sys.version_info >= (3, 7):
+    get_running_loop = asyncio.get_running_loop
+else:
+    get_running_loop = asyncio.get_event_loop
+
+
+def _wrap_close(proxy, loop):
+    original_impl = loop.close
+
+    def _wrapper(self, *args, **kwargs):
+        if loop in proxy._layers:
+            layer = proxy._layers[loop]
+            del proxy._layers[loop]
+            loop.run_until_complete(layer.flush())
+
+        self.close = original_impl
+        return self.close(*args, **kwargs)
+
+    loop.close = types.MethodType(_wrapper, loop)
+
+
 class RedisPubSubChannelLayer:
+    def __init__(self, *args, **kwargs) -> None:
+        self._args = args
+        self._kwargs = kwargs
+        self._layers = {}
+
+    def __getattr__(self, name):
+        if name in (
+            "new_channel",
+            "send",
+            "receive",
+            "group_add",
+            "group_discard",
+            "group_send",
+            "flush",
+        ):
+            return functools.partial(self._proxy, name)
+        else:
+            return getattr(self._get_layer(), name)
+
+    def _get_layer(self):
+        loop = get_running_loop()
+
+        try:
+            layer = self._layers[loop]
+        except KeyError:
+            layer = RedisPubSubLoopLayer(*self._args, **self._kwargs)
+            self._layers[loop] = layer
+            _wrap_close(self, loop)
+
+        return layer
+
+    def _proxy(self, name, *args, **kwargs):
+        async def coro():
+            layer = self._get_layer()
+            return await getattr(layer, name)(*args, **kwargs)
+
+        return coro()
+
+
+class RedisPubSubLoopLayer:
     """
     Channel Layer that uses Redis's pub/sub functionality.
     """

@@ -5,6 +5,7 @@ import async_timeout
 import pytest
 from async_generator import async_generator, yield_
 
+from asgiref.sync import async_to_sync
 from channels_redis.pubsub import RedisPubSubChannelLayer
 
 TEST_HOSTS = [("localhost", 6379)]
@@ -34,6 +35,18 @@ async def test_send_receive(channel_layer):
 
 
 @pytest.mark.asyncio
+def test_send_receive_sync(channel_layer, event_loop):
+    _await = event_loop.run_until_complete
+    channel = _await(channel_layer.new_channel())
+    async_to_sync(channel_layer.send, force_new_loop=True)(
+        channel, {"type": "test.message", "text": "Ahoy-hoy!"}
+    )
+    message = _await(channel_layer.receive(channel))
+    assert message["type"] == "test.message"
+    assert message["text"] == "Ahoy-hoy!"
+
+
+@pytest.mark.asyncio
 async def test_multi_send_receive(channel_layer):
     """
     Tests overlapping sends and receives, and ordering.
@@ -45,6 +58,19 @@ async def test_multi_send_receive(channel_layer):
     assert (await channel_layer.receive(channel))["type"] == "message.1"
     assert (await channel_layer.receive(channel))["type"] == "message.2"
     assert (await channel_layer.receive(channel))["type"] == "message.3"
+
+
+@pytest.mark.asyncio
+def test_multi_send_receive_sync(channel_layer, event_loop):
+    _await = event_loop.run_until_complete
+    channel = _await(channel_layer.new_channel())
+    send = async_to_sync(channel_layer.send)
+    send(channel, {"type": "message.1"})
+    send(channel, {"type": "message.2"})
+    send(channel, {"type": "message.3"})
+    assert _await(channel_layer.receive(channel))["type"] == "message.1"
+    assert _await(channel_layer.receive(channel))["type"] == "message.2"
+    assert _await(channel_layer.receive(channel))["type"] == "message.3"
 
 
 @pytest.mark.asyncio
@@ -101,3 +127,12 @@ async def test_random_reset__channel_name(channel_layer):
     channel_name_2 = await channel_layer.new_channel()
 
     assert channel_name_1 != channel_name_2
+
+
+def test_multi_event_loop_garbage_collection(channel_layer):
+    """
+    Test loop closure layer flushing and garbage collection
+    """
+    assert len(channel_layer._layers.values()) == 0
+    async_to_sync(test_send_receive)(channel_layer)
+    assert len(channel_layer._layers.values()) == 0
