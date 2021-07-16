@@ -419,6 +419,14 @@ async def test_connection_pool_pop():
     assert conn.closed
     connection_pool.push(conn)
 
+    # Will not return a bad connection to the pool
+    conn_not_exists = None
+    connection_pool.push(conn_not_exists)
+    all_connections_in_this_pool = []
+    for conns in connection_pool.conn_map.values():
+        all_connections_in_this_pool.extend(conns)
+    assert conn_not_exists not in all_connections_in_this_pool
+
     # Ensure the closed connection is inside the pool
     conn_map_values = list(connection_pool.conn_map.values())
     assert len(conn_map_values) == 1
