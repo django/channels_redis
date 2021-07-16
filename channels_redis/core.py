@@ -142,7 +142,7 @@ class ConnectionPool:
                 await self._close_conn(conn)
             del self.conn_map[loop]
 
-        for k, v in self.in_use.items():
+        for k, v in tuple(self.in_use.items()):
             if v is loop:
                 await self._close_conn(k)
                 self.in_use[k] = None
