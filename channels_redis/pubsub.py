@@ -101,7 +101,7 @@ class RedisPubSubLoopLayer:
 
         # For each host, we create a `RedisSingleShardConnection` to manage the connection to that host.
         self._shards = [RedisSingleShardConnection(host, self) for host in hosts]
-    
+
     def _get_shard(self, channel_or_group_name):
         """
         Return the shard that is used exclusively for this channel or group.
