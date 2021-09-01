@@ -101,7 +101,7 @@ class RedisPubSubLoopLayer:
 
         # For each host, we create a `RedisSingleShardConnection` to manage the connection to that host.
         self._shards = [RedisSingleShardConnection(host, self) for host in hosts]
-
+    
     def _get_shard(self, channel_or_group_name):
         """
         Return the shard that is used exclusively for this channel or group.
@@ -109,8 +109,11 @@ class RedisPubSubLoopLayer:
         if len(self._shards) == 1:
             # Avoid the overhead of hashing and modulo when it is unnecessary.
             return self._shards[0]
-        shard_index = abs(hash(channel_or_group_name)) % len(self._shards)
-        return self._shards[shard_index]
+        if isinstance(channel_or_group_name, str):
+            channel_or_group_name = channel_or_group_name.encode("utf8")
+        bigval = binascii.crc32(channel_or_group_name) & 0xFFF
+        ring_divisor = 4096 / float(len(self._shards))
+        return self._shards[int(bigval / ring_divisor)]
 
     def _get_group_channel_name(self, group):
         """
