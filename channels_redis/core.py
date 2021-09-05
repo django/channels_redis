@@ -1,6 +1,5 @@
 import asyncio
 import base64
-import binascii
 import collections
 import functools
 import hashlib
@@ -17,6 +16,8 @@ import msgpack
 
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
+
+from .utils import _consistent_hash
 
 logger = logging.getLogger(__name__)
 
@@ -858,15 +859,7 @@ class RedisChannelLayer(BaseChannelLayer):
     ### Internal functions ###
 
     def consistent_hash(self, value):
-        """
-        Maps the value to a node value between 0 and 4095
-        using CRC, then down to one of the ring nodes.
-        """
-        if isinstance(value, str):
-            value = value.encode("utf8")
-        bigval = binascii.crc32(value) & 0xFFF
-        ring_divisor = 4096 / float(self.ring_size)
-        return int(bigval / ring_divisor)
+        return _consistent_hash(value, self.ring_size)
 
     def make_fernet(self, key):
         """
