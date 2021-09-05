@@ -1,4 +1,5 @@
 import asyncio
+import binascii
 import functools
 import logging
 import sys
