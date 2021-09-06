@@ -8,6 +8,8 @@ import uuid
 import aioredis
 import msgpack
 
+from .utils import _consistent_hash
+
 logger = logging.getLogger(__name__)
 
 
@@ -106,11 +108,7 @@ class RedisPubSubLoopLayer:
         """
         Return the shard that is used exclusively for this channel or group.
         """
-        if len(self._shards) == 1:
-            # Avoid the overhead of hashing and modulo when it is unnecessary.
-            return self._shards[0]
-        shard_index = abs(hash(channel_or_group_name)) % len(self._shards)
-        return self._shards[shard_index]
+        return self._shards[_consistent_hash(channel_or_group_name, len(self._shards))]
 
     def _get_group_channel_name(self, group):
         """
