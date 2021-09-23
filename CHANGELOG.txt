@@ -1,3 +1,15 @@
+3.3.1 (2021-09-30)
+------------------
+
+Two bugfixes for the PubSub channel layer:
+
+* Scoped the channel layer per-event loop, in case multiple loops are in play
+  (#262).
+
+* Ensured consistent hashing PubSub was maintained across processes, or process
+  restarts (#274).
+
+
 3.3.0 (2021-07-01)
 ------------------
 
