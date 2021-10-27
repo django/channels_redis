@@ -129,26 +129,22 @@ async def test_random_reset__channel_name(channel_layer):
     assert channel_name_1 != channel_name_2
 
 
-@pytest.mark.asyncio
-def test_serialize(channel_layer, event_loop):
+def test_serialize(channel_layer):
     """
     Test default serialization method
     """
-    _await = event_loop.run_until_complete
     message = {"a": True, "b": None, "c": {"d": []}}
-    serialized = _await(channel_layer.serialize(message))
+    serialized = channel_layer.serialize(message)
     assert isinstance(serialized, bytes)
     assert serialized == b"\x83\xa1a\xc3\xa1b\xc0\xa1c\x81\xa1d\x90"
 
 
-@pytest.mark.asyncio
-def test_deserialize(channel_layer, event_loop):
+def test_deserialize(channel_layer):
     """
     Test default deserialization method
     """
-    _await = event_loop.run_until_complete
     message = b"\x83\xa1a\xc3\xa1b\xc0\xa1c\x81\xa1d\x90"
-    deserialized = _await(channel_layer.deserialize(message))
+    deserialized = channel_layer.deserialize(message)
 
     assert isinstance(deserialized, dict)
     assert deserialized == {"a": True, "b": None, "c": {"d": []}}
