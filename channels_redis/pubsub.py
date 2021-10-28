@@ -73,7 +73,9 @@ class RedisPubSubChannelLayer:
             layer = self._layers[loop]
         except KeyError:
             layer = RedisPubSubLoopLayer(
-                *self._args, **self._kwargs, channel_layer=self,
+                *self._args,
+                **self._kwargs,
+                channel_layer=self,
             )
             self._layers[loop] = layer
             _wrap_close(self, loop)
