@@ -129,6 +129,34 @@ async def test_random_reset__channel_name(channel_layer):
     assert channel_name_1 != channel_name_2
 
 
+@pytest.mark.asyncio
+async def test_loop_instance_channel_layer_reference(channel_layer):
+    redis_pub_sub_loop_layer = channel_layer._get_layer()
+
+    assert redis_pub_sub_loop_layer.channel_layer == channel_layer
+
+
+def test_serialize(channel_layer):
+    """
+    Test default serialization method
+    """
+    message = {"a": True, "b": None, "c": {"d": []}}
+    serialized = channel_layer.serialize(message)
+    assert isinstance(serialized, bytes)
+    assert serialized == b"\x83\xa1a\xc3\xa1b\xc0\xa1c\x81\xa1d\x90"
+
+
+def test_deserialize(channel_layer):
+    """
+    Test default deserialization method
+    """
+    message = b"\x83\xa1a\xc3\xa1b\xc0\xa1c\x81\xa1d\x90"
+    deserialized = channel_layer.deserialize(message)
+
+    assert isinstance(deserialized, dict)
+    assert deserialized == {"a": True, "b": None, "c": {"d": []}}
+
+
 def test_multi_event_loop_garbage_collection(channel_layer):
     """
     Test loop closure layer flushing and garbage collection

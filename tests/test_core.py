@@ -641,3 +641,26 @@ def test_receive_buffer_respects_capacity():
     assert buff.qsize() == capacity
     messages = [buff.get_nowait() for _ in range(capacity)]
     assert list(range(9900, 10000)) == messages
+
+
+def test_serialize():
+    """
+    Test default serialization method
+    """
+    message = {"a": True, "b": None, "c": {"d": []}}
+    channel_layer = RedisChannelLayer()
+    serialized = channel_layer.serialize(message)
+    assert isinstance(serialized, bytes)
+    assert serialized[12:] == b"\x83\xa1a\xc3\xa1b\xc0\xa1c\x81\xa1d\x90"
+
+
+def test_deserialize():
+    """
+    Test default deserialization method
+    """
+    message = b"Q\x0c\xbb?Q\xbc\xe3|D\xfd9\x00\x83\xa1a\xc3\xa1b\xc0\xa1c\x81\xa1d\x90"
+    channel_layer = RedisChannelLayer()
+    deserialized = channel_layer.deserialize(message)
+
+    assert isinstance(deserialized, dict)
+    assert deserialized == {"a": True, "b": None, "c": {"d": []}}
