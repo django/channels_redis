@@ -58,13 +58,13 @@ class RedisPubSubChannelLayer:
         """
         Serializes message to a byte string.
         """
-        return msgpack.packb(message, use_bin_type=True)
+        return msgpack.packb(message)
 
     def deserialize(self, message):
         """
         Deserializes from a byte string.
         """
-        return msgpack.unpackb(message, raw=False)
+        return msgpack.unpackb(message)
 
     def _get_layer(self):
         loop = get_running_loop()
