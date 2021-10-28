@@ -75,8 +75,7 @@ class RedisPubSubChannelLayer:
             layer = RedisPubSubLoopLayer(
                 *self._args,
                 **self._kwargs,
-                serialize_func=self.serialize,
-                deserialize_func=self.deserialize,
+                channel_layer=self,
             )
             self._layers[loop] = layer
             _wrap_close(self, loop)
@@ -97,7 +96,13 @@ class RedisPubSubLoopLayer:
     """
 
     def __init__(
-        self, hosts=None, prefix="asgi", on_disconnect=None, on_reconnect=None, **kwargs
+        self,
+        hosts=None,
+        prefix="asgi",
+        on_disconnect=None,
+        on_reconnect=None,
+        channel_layer=None,
+        **kwargs,
     ):
         if hosts is None:
             hosts = [("localhost", 6379)]
@@ -109,6 +114,7 @@ class RedisPubSubLoopLayer:
 
         self.on_disconnect = on_disconnect
         self.on_reconnect = on_reconnect
+        self.channel_layer = channel_layer
 
         # Each consumer gets its own *specific* channel, created with the `new_channel()` method.
         # This dict maps `channel_name` to a queue of messages for that channel.
@@ -117,13 +123,6 @@ class RedisPubSubLoopLayer:
         # A channel can subscribe to zero or more groups.
         # This dict maps `group_name` to set of channel names who are subscribed to that group.
         self.groups = {}
-
-        # Serialization methods
-        self.serialize = kwargs.pop("serialize_func")
-        self.deserialize = kwargs.pop("deserialize_func")
-        assert callable(self.serialize) and callable(
-            self.deserialize
-        ), "serialization methods have to be callable"
 
         # For each host, we create a `RedisSingleShardConnection` to manage the connection to that host.
         self._shards = [RedisSingleShardConnection(host, self) for host in hosts]
@@ -157,7 +156,7 @@ class RedisPubSubLoopLayer:
         Send a message onto a (general or specific) channel.
         """
         shard = self._get_shard(channel)
-        await shard.publish(channel, self.serialize(message))
+        await shard.publish(channel, self.channel_layer.serialize(message))
 
     async def new_channel(self, prefix="specific."):
         """
@@ -204,7 +203,7 @@ class RedisPubSubLoopLayer:
                     # We don't re-raise here because we want the CancelledError to be the one re-raised.
             raise
 
-        return self.deserialize(message)
+        return self.channel_layer.deserialize(message)
 
     ################################################################################
     # Groups extension
@@ -249,7 +248,7 @@ class RedisPubSubLoopLayer:
         """
         group_channel = self._get_group_channel_name(group)
         shard = self._get_shard(group_channel)
-        await shard.publish(group_channel, self.serialize(message))
+        await shard.publish(group_channel, self.channel_layer.serialize(message))
 
     ################################################################################
     # Flush extension
@@ -421,7 +420,7 @@ class RedisSingleShardConnection:
     def _notify_consumers(self, mtype):
         if mtype is not None:
             for channel in self.channel_layer.channels.values():
-                channel.put_nowait(self.channel_layer.serialize({"type": mtype}))
+                channel.put_nowait(self.channel_layer.channel_layer.serialize({"type": mtype}))
 
     async def _ensure_redis(self):
         if self._redis is None:
