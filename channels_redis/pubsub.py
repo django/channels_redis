@@ -73,9 +73,7 @@ class RedisPubSubChannelLayer:
             layer = self._layers[loop]
         except KeyError:
             layer = RedisPubSubLoopLayer(
-                *self._args,
-                **self._kwargs,
-                channel_layer=self,
+                *self._args, **self._kwargs, channel_layer=self,
             )
             self._layers[loop] = layer
             _wrap_close(self, loop)
@@ -420,7 +418,9 @@ class RedisSingleShardConnection:
     def _notify_consumers(self, mtype):
         if mtype is not None:
             for channel in self.channel_layer.channels.values():
-                channel.put_nowait(self.channel_layer.channel_layer.serialize({"type": mtype}))
+                channel.put_nowait(
+                    self.channel_layer.channel_layer.serialize({"type": mtype})
+                )
 
     async def _ensure_redis(self):
         if self._redis is None:
