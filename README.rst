@@ -19,6 +19,13 @@ There are two available implementations:
 
 Both layers support a single-server and sharded configurations.
 
+Installation
+------------
+
+.. code-block::
+
+    pip install channels-redis
+
 **Note:** Prior versions of this package were called ``asgi_redis`` and are
 still available under PyPI as that name if you need them for Channels 1.x projects.
 This package is for Channels 2 projects only.
@@ -28,6 +35,8 @@ Usage
 -----
 
 Set up the channel layer in your Django settings file like so::
+
+.. code-block:: python
 
     CHANNEL_LAYERS = {
         "default": {
@@ -39,6 +48,8 @@ Set up the channel layer in your Django settings file like so::
     }
 
 Or, you can use the alternate implementation which uses Redis Pub/Sub::
+
+.. code-block:: python
 
     CHANNEL_LAYERS = {
         "default": {
