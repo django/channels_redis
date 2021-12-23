@@ -34,7 +34,7 @@ This package is for Channels 2 projects only.
 Usage
 -----
 
-Set up the channel layer in your Django settings file like so::
+Set up the channel layer in your Django settings file like so:
 
 .. code-block:: python
 
@@ -47,7 +47,7 @@ Set up the channel layer in your Django settings file like so::
         },
     }
 
-Or, you can use the alternate implementation which uses Redis Pub/Sub::
+Or, you can use the alternate implementation which uses Redis Pub/Sub:
 
 .. code-block:: python
 
