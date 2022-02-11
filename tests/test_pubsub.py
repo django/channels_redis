@@ -1,5 +1,6 @@
 import asyncio
 import random
+import uuid
 
 import async_timeout
 import pytest
@@ -11,6 +12,15 @@ from channels_redis.pubsub import RedisPubSubChannelLayer
 TEST_HOSTS = [("localhost", 6379)]
 
 
+class UUIDPubSubChannelLayer(RedisPubSubChannelLayer):
+
+    def default_serialize(self, value):
+        if isinstance(value, uuid.UUID):
+            return str(value)
+
+        return super().default_serialize(value)
+
+
 @pytest.fixture()
 @async_generator
 async def channel_layer():
@@ -18,6 +28,17 @@ async def channel_layer():
     Channel layer fixture that flushes automatically.
     """
     channel_layer = RedisPubSubChannelLayer(hosts=TEST_HOSTS)
+    await yield_(channel_layer)
+    await channel_layer.flush()
+
+
+@pytest.fixture()
+@async_generator
+async def channel_uuid_layer():
+    """
+    Channel layer fixture that flushes automatically.
+    """
+    channel_layer = UUIDPubSubChannelLayer(hosts=TEST_HOSTS)
     await yield_(channel_layer)
     await channel_layer.flush()
 
@@ -164,3 +185,15 @@ def test_multi_event_loop_garbage_collection(channel_layer):
     assert len(channel_layer._layers.values()) == 0
     async_to_sync(test_send_receive)(channel_layer)
     assert len(channel_layer._layers.values()) == 0
+
+
+def test_default_serialize(channel_layer, channel_uuid_layer):
+    value = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    with pytest.raises(TypeError):
+        channel_layer.default_serialize(value)
+
+    with pytest.raises(TypeError):
+        channel_layer.serialize({"value": value})
+
+    packed_message = channel_uuid_layer.serialize({"value": value})
+    assert channel_uuid_layer.deserialize(packed_message) == {"value": "12345678-1234-5678-1234-567812345678"}

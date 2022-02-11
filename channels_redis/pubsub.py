@@ -54,11 +54,21 @@ class RedisPubSubChannelLayer:
         else:
             return getattr(self._get_layer(), name)
 
+
+    def default_serialize(self, value):
+        """
+        Gets called for objects that can’t otherwise be serialized.
+        It should return a JSON encodable version of the object or raise TypeError.
+
+        It should be overriden when an alternative default serialization is required.
+        """
+        raise TypeError
+
     def serialize(self, message):
         """
         Serializes message to a byte string.
         """
-        return msgpack.packb(message)
+        return msgpack.packb(message, default=self.default_serialize)
 
     def deserialize(self, message):
         """

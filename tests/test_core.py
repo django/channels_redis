@@ -679,10 +679,10 @@ def test_deserialize():
 def test_default_serialize():
     channel_layer = RedisChannelLayer()
     value = uuid.UUID("12345678-1234-5678-1234-567812345678")
-    with pytest.raise(TypeError):
+    with pytest.raises(TypeError):
         channel_layer.default_serialize(value)
 
-    with pytest.raise(TypeError):
+    with pytest.raises(TypeError):
         channel_layer.serialize({"value": value})
 
     channel_layer = UUIDRedisChannelLayer()
