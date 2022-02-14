@@ -215,6 +215,18 @@ Dependencies
 Redis >= 5.0 is required for `channels_redis`. Python 3.6 or higher is required.
 
 
+Used commands
+~~~~~~~~~~~~~
+
+Your Redis server must support the following commands:
+
+* ``RedisChannelLayer`` uses ``BZPOPMIN``, ``DEL``, ``EVAL``, ``EXPIRE``,
+  ``KEYS``, ``PIPELINE``, ``ZADD``, ``ZCOUNT``, ``ZPOPMIN``, ``ZRANGE``,
+  ``ZREM``, ``ZREMRANGEBYSCORE``
+
+* ``RedisPubSubChannelLayer`` uses ``ADD``, ``COPY``, ``FLUSH``, ``GET``,
+  ``PUBLISH``
+
 Contributing
 ------------
 
