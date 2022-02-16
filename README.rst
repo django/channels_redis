@@ -224,8 +224,7 @@ Your Redis server must support the following commands:
   ``KEYS``, ``PIPELINE``, ``ZADD``, ``ZCOUNT``, ``ZPOPMIN``, ``ZRANGE``,
   ``ZREM``, ``ZREMRANGEBYSCORE``
 
-* ``RedisPubSubChannelLayer`` uses ``ADD``, ``COPY``, ``FLUSH``, ``GET``,
-  ``PUBLISH``
+* ``RedisPubSubChannelLayer`` uses ``PUBLISH``, ``SUBSCRIBE``, ``UNSUBSCRIBE``
 
 Contributing
 ------------
