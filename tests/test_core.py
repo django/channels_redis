@@ -1,5 +1,7 @@
 import asyncio
+import logging
 import random
+import re
 
 import async_timeout
 import pytest
@@ -62,6 +64,21 @@ async def channel_layer():
     """
     channel_layer = RedisChannelLayer(
         hosts=TEST_HOSTS, capacity=3, channel_capacity={"tiny": 1}
+    )
+    await yield_(channel_layer)
+    await channel_layer.flush()
+
+
+@pytest.fixture()
+@async_generator
+async def channel_layer_with_option_auto_discard_full_channels():
+    """
+    Channel layer fixture that flushes automatically.
+    """
+    channel_layer = RedisChannelLayer(
+        hosts=TEST_HOSTS,
+        capacity=3,
+        should_auto_discard_full_channels=True,
     )
     await yield_(channel_layer)
     await channel_layer.flush()
@@ -368,6 +385,7 @@ async def test_group_send_capacity_multiple_channels(channel_layer, caplog):
     Makes sure we dont group_send messages to channels that are over capacity
     Make sure number of channels with full capacity are logged as an exception to help debug errors.
     """
+    caplog.set_level(logging.INFO)
 
     channel_1 = await channel_layer.new_channel()
     channel_2 = await channel_layer.new_channel(prefix="channel_2")
@@ -397,11 +415,74 @@ async def test_group_send_capacity_multiple_channels(channel_layer, caplog):
             await channel_layer.receive(channel_2)
 
     # Make sure number of channels over capacity are logged
-    for record in caplog.records:
-        assert record.levelname == "INFO"
-        assert (
-            record.getMessage() == "1 of 2 channels over capacity in group test-group"
+    assert caplog.record_tuples == [
+        (
+            "channels_redis.core",
+            logging.INFO,
+            "1 of 2 channels over capacity in group test-group",
         )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_group_send_with_auto_discard_full_channels(
+    channel_layer_with_option_auto_discard_full_channels, caplog
+):
+    """
+    Tests when the should_auto_discard_full_channels option is enabled, a full channel is discarded
+    """
+    caplog.set_level(logging.INFO)
+
+    channel_layer = channel_layer_with_option_auto_discard_full_channels
+
+    channel_1 = await channel_layer.new_channel()
+    channel_2 = await channel_layer.new_channel(prefix="channel_2")
+    await channel_layer.group_add("test-group", channel_1)
+    await channel_layer.group_add("test-group", channel_2)
+
+    # Let's help channel_2 get over capacity later in the test
+    await channel_layer.send(channel_2, {"type": "message.0"})
+
+    await channel_layer.group_send("test-group", {"type": "message.1"})
+    await channel_layer.group_send("test-group", {"type": "message.2"})
+    await channel_layer.group_send("test-group", {"type": "message.3"})
+
+    # Channel_1 should receive all 3 group messages
+    assert (await channel_layer.receive(channel_1))["type"] == "message.1"
+    assert (await channel_layer.receive(channel_1))["type"] == "message.2"
+    assert (await channel_layer.receive(channel_1))["type"] == "message.3"
+
+    # Channel_2 should receive the first message + 2 group messages (given the capacity is 3)
+    assert (await channel_layer.receive(channel_2))["type"] == "message.0"
+    assert (await channel_layer.receive(channel_2))["type"] == "message.1"
+    assert (await channel_layer.receive(channel_2))["type"] == "message.2"
+
+    # Make sure channel_2 does not receive the 3rd group message
+    with pytest.raises(asyncio.TimeoutError):
+        async with async_timeout.timeout(1):
+            await channel_layer.receive(channel_2)
+
+    # Make sure discarded channels are logged
+    assert len(caplog.records) == 2
+    assert caplog.record_tuples[0] == (
+        "channels_redis.core",
+        logging.INFO,
+        "1 of 2 channels over capacity in group test-group",
+    )
+
+    assert caplog.records[1].levelname == "INFO"
+    assert re.match(
+        r"Channel channel_2\..* over capacity. Discarding it from group test-group.",
+        caplog.records[1].message,
+    )
+
+    # Make sure channel_1 still receives a new message, while channel_2 does not (because it is
+    # no longer part of the group)
+    await channel_layer.group_send("test-group", {"type": "message.4"})
+    assert (await channel_layer.receive(channel_1))["type"] == "message.4"
+    with pytest.raises(asyncio.TimeoutError):
+        async with async_timeout.timeout(1):
+            await channel_layer.receive(channel_2)
 
 
 @pytest.mark.asyncio

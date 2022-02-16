@@ -236,6 +236,7 @@ class RedisChannelLayer(BaseChannelLayer):
         capacity=100,
         channel_capacity=None,
         symmetric_encryption_keys=None,
+        should_auto_discard_full_channels=False,
     ):
         # Store basic information
         self.expiry = expiry
@@ -243,6 +244,7 @@ class RedisChannelLayer(BaseChannelLayer):
         self.capacity = capacity
         self.channel_capacity = self.compile_capacities(channel_capacity or {})
         self.prefix = prefix
+        self.should_auto_discard_full_channels = should_auto_discard_full_channels
         assert isinstance(self.prefix, str), "Prefix must be unicode"
         # Configure the host objects
         self.hosts = self.decode_hosts(hosts)
@@ -682,6 +684,7 @@ class RedisChannelLayer(BaseChannelLayer):
             connection_to_channel_keys,
             channel_keys_to_message,
             channel_keys_to_capacity,
+            channel_keys_to_channel_name,
         ) = self._map_channel_keys_to_connection(channel_names, message)
 
         for connection_index, channel_redis_keys in connection_to_channel_keys.items():
@@ -699,18 +702,25 @@ class RedisChannelLayer(BaseChannelLayer):
             # __asgi_channel__ key.
 
             group_send_lua = """
-                local over_capacity = 0
+                local channels_over_capacity = {}
                 local current_time = ARGV[#ARGV - 1]
                 local expiry = ARGV[#ARGV]
+                local num_messages_in_channel
                 for i=1,#KEYS do
-                    if redis.call('ZCOUNT', KEYS[i], '-inf', '+inf') < tonumber(ARGV[i + #KEYS]) then
-                        redis.call('ZADD', KEYS[i], current_time, ARGV[i])
-                        redis.call('EXPIRE', KEYS[i], expiry)
+                    local channel_capacity = tonumber(ARGV[i + #KEYS])
+                    local channel_name = KEYS[i]
+                    local member = ARGV[i]
+                    num_messages_in_channel = redis.call('ZCOUNT', channel_name, '-inf', '+inf')
+                    if num_messages_in_channel < channel_capacity then
+                        -- Add the member (the message) to the Redis set (our channel)
+                        redis.call('ZADD', channel_name, current_time, member)
+                        -- Update the channel's expiration time (TTL)
+                        redis.call('EXPIRE', channel_name, expiry)
                     else
-                        over_capacity = over_capacity + 1
+                        channels_over_capacity[#channels_over_capacity+1] = channel_name
                     end
                 end
-                return over_capacity
+                return channels_over_capacity
             """
 
             # We need to filter the messages to keep those related to the connection
@@ -725,20 +735,40 @@ class RedisChannelLayer(BaseChannelLayer):
                 for channel_key in channel_redis_keys
             ]
 
+            # Additional arguments to be accessed by indexes from the end of the args list
             args += [time.time(), self.expiry]
 
             # channel_keys does not contain a single redis key more than once
             async with self.connection(connection_index) as connection:
-                channels_over_capacity = await connection.eval(
+                channel_keys_over_capacity_binary = await connection.eval(
                     group_send_lua, keys=channel_redis_keys, args=args
                 )
-                if channels_over_capacity > 0:
+                assert isinstance(channel_keys_over_capacity_binary, list)
+                # The executed Lua script returns strings as binary, so convert to unicode.
+                channel_keys_over_capacity_unicode = [
+                    val.decode("UTF-8") for val in channel_keys_over_capacity_binary
+                ]
+                channel_names_over_capacity = [
+                    channel_keys_to_channel_name[val]
+                    for val in channel_keys_over_capacity_unicode
+                ]
+
+                if len(channel_names_over_capacity) > 0:
                     logger.info(
                         "%s of %s channels over capacity in group %s",
-                        channels_over_capacity,
+                        len(channel_names_over_capacity),
                         len(channel_names),
                         group,
                     )
+
+                if self.should_auto_discard_full_channels:
+                    for channel_over_capacity in channel_names_over_capacity:
+                        logger.info(
+                            "Channel %s over capacity. Discarding it from group %s.",
+                            channel_over_capacity,
+                            group,
+                        )
+                        await self.group_discard(group, channel_over_capacity)
 
     def _map_channel_to_connection(self, channel_names, message):
         """
@@ -765,7 +795,6 @@ class RedisChannelLayer(BaseChannelLayer):
             connection_to_channels[idx].append(channel_key)
             channel_to_capacity[channel] = self.get_capacity(channel)
             channel_to_message[channel] = self.serialize(message)
-            # We build a
             channel_to_key[channel] = channel_key
 
         return (
@@ -785,14 +814,18 @@ class RedisChannelLayer(BaseChannelLayer):
            the list of channels mapped to that redis key in __asgi_channel__ key to the message
 
         3. returns a mapping of redis channels keys to their capacity
+
+        4. returns a mapping of redis channel keys to their channel names
         """
 
         # Connection dict keyed by index to list of redis keys mapped on that index
         connection_to_channel_keys = collections.defaultdict(list)
-        # Message dict maps redis key to the message that needs to be send on that key
+        # Message dict maps redis key to the message that needs to be sent on that key
         channel_key_to_message = dict()
         # Channel key mapped to its capacity
         channel_key_to_capacity = dict()
+        # Channel key mapped to channel name
+        channel_key_to_channel_name = dict()
 
         # For each channel
         for channel in channel_names:
@@ -801,6 +834,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 channel_non_local_name = self.non_local_name(channel)
             # Get its redis key
             channel_key = self.prefix + channel_non_local_name
+            channel_key_to_channel_name[channel_key] = channel
             # Have we come across the same redis key?
             if channel_key not in channel_key_to_message:
                 # If not, fill the corresponding dicts
@@ -814,7 +848,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 # Yes, Append the channel in message dict
                 channel_key_to_message[channel_key]["__asgi_channel__"].append(channel)
 
-        # Now that we know what message needs to be send on a redis key we serialize it
+        # Now that we know what message needs to be sent on a redis key, we serialize it
         for key, value in channel_key_to_message.items():
             # Serialize the message stored for each redis key
             channel_key_to_message[key] = self.serialize(value)
@@ -823,6 +857,7 @@ class RedisChannelLayer(BaseChannelLayer):
             connection_to_channel_keys,
             channel_key_to_message,
             channel_key_to_capacity,
+            channel_key_to_channel_name,
         )
 
     def _group_key(self, group):

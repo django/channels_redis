@@ -143,6 +143,13 @@ to 10, and all ``websocket.send!`` channels to 20:
 If you want to enforce a matching order, use an ``OrderedDict`` as the
 argument; channels will then be matched in the order the dict provides them.
 
+``should_auto_discard_full_channels``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When this option is set to ``True`` and a message is sent to a channel that is at its
+maximum capacity (e.g. 100 messages are in a channel whose capacity is 100), the
+*entire channel* will be discarded from its group.
+
 ``symmetric_encryption_keys``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
