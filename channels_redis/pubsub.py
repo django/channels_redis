@@ -5,7 +5,7 @@ import sys
 import types
 import uuid
 
-import aioredis
+from redis import asyncio as aioredis
 import msgpack
 
 from .utils import _consistent_hash
@@ -105,7 +105,7 @@ class RedisPubSubLoopLayer:
         **kwargs,
     ):
         if hosts is None:
-            hosts = [("localhost", 6379)]
+            hosts = ["redis://localhost:6379"]
         assert (
             isinstance(hosts, list) and len(hosts) > 0
         ), "`hosts` must be a list with at least one Redis server"
@@ -427,7 +427,7 @@ class RedisSingleShardConnection:
     async def _ensure_redis(self):
         if self._redis is None:
             if self.master_name is None:
-                self._redis = await aioredis.create_redis_pool(**self.host)
+                self._redis = aioredis.ConnectionPool(**self.host)
             else:
                 # aioredis default timeout is way too low
                 self._redis = await aioredis.sentinel.create_sentinel(
@@ -443,7 +443,7 @@ class RedisSingleShardConnection:
     async def _get_redis_conn(self):
         await self._ensure_redis()
         conn = await self._get_aioredis_pool().acquire()
-        return aioredis.Redis(conn)
+        return aioredis.ConnectionPool(conn)
 
     def _put_redis_conn(self, conn):
         if conn:

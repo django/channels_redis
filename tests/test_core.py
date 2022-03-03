@@ -8,7 +8,7 @@ from async_generator import async_generator, yield_
 from asgiref.sync import async_to_sync
 from channels_redis.core import ChannelFull, ConnectionPool, RedisChannelLayer
 
-TEST_HOSTS = [("localhost", 6379)]
+TEST_HOSTS = ["redis://localhost:6379"]
 
 MULTIPLE_TEST_HOSTS = [
     "redis://localhost:6379/0",
@@ -411,11 +411,11 @@ async def test_connection_pool_pop():
     """
 
     # Setup scenario
-    connection_pool = ConnectionPool({"address": TEST_HOSTS[0]})
+    connection_pool = ConnectionPool(TEST_HOSTS[0])
     conn = await connection_pool.pop()
 
     # Emualte a disconnect and return it to the pool
-    conn.close()
+    conn.disconnect()
     assert conn.closed
     connection_pool.push(conn)
 
