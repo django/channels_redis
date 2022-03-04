@@ -415,7 +415,7 @@ async def test_connection_pool_pop():
     conn = await connection_pool.pop()
 
     # Emualte a disconnect and return it to the pool
-    conn.disconnect()
+    await conn.disconnect()
     assert conn.closed
     connection_pool.push(conn)
 

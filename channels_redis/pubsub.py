@@ -443,7 +443,7 @@ class RedisSingleShardConnection:
     async def _get_redis_conn(self):
         await self._ensure_redis()
         conn = await self._get_aioredis_pool().acquire()
-        return aioredis.ConnectionPool(conn)
+        return aioredis.Redis(conn)
 
     def _put_redis_conn(self, conn):
         if conn:

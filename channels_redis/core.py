@@ -6,7 +6,6 @@ import hashlib
 import itertools
 import logging
 import random
-import sys
 import time
 import types
 import uuid
@@ -49,7 +48,7 @@ class ConnectionPool:
     def __init__(self, host):
         self.host = host
         # TODO: re-add support for master_name
-        self.master_name = None # self.host.pop("master_name", None)
+        self.master_name = None  # self.host.pop("master_name", None)
         self.conn_map = {}
         self.sentinel_map = {}
         self.in_use = {}
