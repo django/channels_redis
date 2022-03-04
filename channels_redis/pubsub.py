@@ -5,8 +5,8 @@ import sys
 import types
 import uuid
 
-from redis import asyncio as aioredis
 import msgpack
+from redis import asyncio as aioredis
 
 from .utils import _consistent_hash
 
