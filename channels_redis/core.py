@@ -46,9 +46,8 @@ class ConnectionPool:
     """
 
     def __init__(self, host):
-        self.host = host
-        # TODO: re-add support for master_name
-        self.master_name = None  # self.host.pop("master_name", None)
+        self.host = host.copy()
+        self.master_name = self.host.pop("master_name", None)
         self.conn_map = {}
         self.sentinel_map = {}
         self.in_use = {}
@@ -74,10 +73,10 @@ class ConnectionPool:
         # if not sys.version_info >= (3, 8, 0):
         #     kwargs["loop"] = loop
         if self.master_name is None:
-            return aioredis.ConnectionPool.from_url(self.host, **kwargs)
+            return aioredis.ConnectionPool.from_url(self.host["address"], **kwargs)
         else:
-            kwargs = {"timeout": 2, **kwargs}  # aioredis default is way too low
-            sentinel = await aioredis.sentinel.create_sentinel(**kwargs)
+            kwargs = {"socket_timeout": 2, **kwargs}  # aioredis default is way too low
+            sentinel = aioredis.sentinel.Sentinel(self.host["sentinels"], **kwargs)
             conn = sentinel.master_for(self.master_name)
             self.sentinel_map[conn] = sentinel
             return conn
@@ -128,10 +127,14 @@ class ConnectionPool:
         if sentinel_map is None:
             sentinel_map = self.sentinel_map
         if conn in sentinel_map:
-            sentinel_map[conn].close()
-            await sentinel_map[conn].wait_closed()
+            for sentinel in sentinel_map[conn].sentinels:
+                await sentinel.connection_pool.disconnect()
             del sentinel_map[conn]
-        await conn.disconnect()
+        # TODO why are we getting two different types here?
+        if isinstance(conn, aioredis.ConnectionPool):
+            await conn.disconnect()
+        else:
+            await conn.connection_pool.disconnect()
 
     async def close_loop(self, loop):
         """
@@ -278,7 +281,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         # If no hosts were provided, return a default value
         if not hosts:
-            return ["redis://localhost:6379"]
+            return [{"address": "redis://localhost:6379"}]
         # If they provided just a string, scold them.
         if isinstance(hosts, (str, bytes)):
             raise ValueError(
@@ -292,7 +295,7 @@ class RedisChannelLayer(BaseChannelLayer):
             if isinstance(entry, dict):
                 result.append(entry)
             else:
-                result.append(entry)
+                result.append({"address": entry})
         return result
 
     def _setup_encryption(self, symmetric_encryption_keys):
@@ -900,6 +903,9 @@ class RedisChannelLayer(BaseChannelLayer):
 
         async def __aenter__(self):
             self.conn = await self.pool.pop()
+            # TODO Why are we getting two different types here?
+            if isinstance(self.conn, aioredis.Redis):
+                return self.conn
             return aioredis.Redis(connection_pool=self.conn)
 
         async def __aexit__(self, exc_type, exc, tb):

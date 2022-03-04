@@ -226,6 +226,26 @@ Your Redis server must support the following commands:
 
 * ``RedisPubSubChannelLayer`` uses ``PUBLISH``, ``SUBSCRIBE``, ``UNSUBSCRIBE``
 
+Local Development
+-----------------
+
+You can run the necessary Redis instances in Docker with the following commands:
+
+.. code-block:: shell
+
+    $ docker network create redis
+    $ docker run --rm \
+        --network=redis \
+        -p 6379:6379 \
+        redis
+    $ docker run --rm \
+        --network redis \
+        -e REDIS_MASTER_HOST=localhost \
+        -e REDIS_MASTER_SET=sentinel \
+        -e REDIS_SENTINEL_QUORUM=1 \
+        -p 26379:26379 \
+        bitnami/redis-sentinel
+
 Contributing
 ------------
 
