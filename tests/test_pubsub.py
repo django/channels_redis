@@ -148,7 +148,7 @@ async def test_receive_on_non_owned_general_channel(channel_layer, other_channel
     try:
         # Make sure we get the message on the channels that were in
         async with async_timeout.timeout(1):
-            assert (await receive_task == "message.1")
+            assert await receive_task == "message.1"
     finally:
         receive_task.cancel()
 
