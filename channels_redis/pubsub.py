@@ -34,6 +34,13 @@ def _wrap_close(proxy, loop):
     loop.close = types.MethodType(_wrapper, loop)
 
 
+async def _async_proxy(obj, name, *args, **kwargs):
+    # Must be defined as a function and not a method due to
+    # https://bugs.python.org/issue38364
+    layer = obj._get_layer()
+    return await getattr(layer, name)(*args, **kwargs)
+
+
 class RedisPubSubChannelLayer:
     def __init__(self, *args, **kwargs) -> None:
         self._args = args
@@ -50,7 +57,7 @@ class RedisPubSubChannelLayer:
             "group_send",
             "flush",
         ):
-            return functools.partial(self._proxy, name)
+            return functools.partial(_async_proxy, self, name)
         else:
             return getattr(self._get_layer(), name)
 
@@ -81,13 +88,6 @@ class RedisPubSubChannelLayer:
             _wrap_close(self, loop)
 
         return layer
-
-    def _proxy(self, name, *args, **kwargs):
-        async def coro():
-            layer = self._get_layer()
-            return await getattr(layer, name)(*args, **kwargs)
-
-        return coro()
 
 
 class RedisPubSubLoopLayer:

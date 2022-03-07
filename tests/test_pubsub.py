@@ -1,5 +1,7 @@
 import asyncio
+import inspect
 import random
+import sys
 
 import async_timeout
 import pytest
@@ -164,3 +166,11 @@ def test_multi_event_loop_garbage_collection(channel_layer):
     assert len(channel_layer._layers.values()) == 0
     async_to_sync(test_send_receive)(channel_layer)
     assert len(channel_layer._layers.values()) == 0
+
+
+@pytest.mark.asyncio
+async def test_proxied_methods_coroutine_check(channel_layer):
+    # inspect.iscoroutinefunction does not work for partial functions
+    # below Python 3.8.
+    if sys.version_info >= (3, 8):
+        assert inspect.iscoroutinefunction(channel_layer.send)
