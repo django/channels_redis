@@ -1,7 +1,6 @@
 import asyncio
 import functools
 import logging
-import sys
 import types
 import uuid
 
@@ -11,12 +10,6 @@ import msgpack
 from .utils import _consistent_hash
 
 logger = logging.getLogger(__name__)
-
-
-if sys.version_info >= (3, 7):
-    get_running_loop = asyncio.get_running_loop
-else:
-    get_running_loop = asyncio.get_event_loop
 
 
 def _wrap_close(proxy, loop):
@@ -74,7 +67,7 @@ class RedisPubSubChannelLayer:
         return msgpack.unpackb(message)
 
     def _get_layer(self):
-        loop = get_running_loop()
+        loop = asyncio.get_running_loop()
 
         try:
             layer = self._layers[loop]

@@ -29,7 +29,7 @@ setup(
     zip_safe=False,
     packages=find_packages(exclude=["tests"]),
     include_package_data=True,
-    python_requires=">=3.6",
+    python_requires=">=3.7",
     install_requires=[
         "aioredis~=1.0",
         "msgpack~=1.0",

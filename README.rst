@@ -212,7 +212,7 @@ And then in your channels consumer, you can implement the handler:
 Dependencies
 ------------
 
-Redis >= 5.0 is required for `channels_redis`. Python 3.6 or higher is required.
+Redis >= 5.0 is required for `channels_redis`. Python 3.7 or higher is required.
 
 
 Used commands

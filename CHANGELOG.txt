@@ -1,3 +1,9 @@
+Unreleased
+----------
+
+Dropped support for Python 3.6.
+
+
 3.3.1 (2021-09-30)
 ------------------
 
