@@ -171,6 +171,6 @@ def test_multi_event_loop_garbage_collection(channel_layer):
 @pytest.mark.asyncio
 async def test_proxied_methods_coroutine_check(channel_layer):
     # inspect.iscoroutinefunction does not work for partial functions
-    # below Python 3.8 
+    # below Python 3.8.
     if sys.version_info >= (3, 8):
         assert inspect.iscoroutinefunction(channel_layer.send)
