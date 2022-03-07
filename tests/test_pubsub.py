@@ -135,6 +135,7 @@ async def test_receive_on_non_owned_general_channel(channel_layer, other_channel
     Tests receive with general channel that is not owned by the layer
     """
     receive_started = asyncio.Event()
+
     async def receive():
         receive_started.set()
         return await other_channel_layer.receive("test-channel")
