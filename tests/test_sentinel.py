@@ -418,8 +418,8 @@ async def test_connection_pool_pop():
     conn = await connection_pool.pop()
 
     # Emualte a disconnect and return it to the pool
-    conn.close()
-    assert conn.closed
+    await conn.close()
+    assert conn.connection is None
     connection_pool.push(conn)
 
     # Ensure the closed connection is inside the pool
@@ -427,11 +427,11 @@ async def test_connection_pool_pop():
     assert len(conn_map_values) == 1
     conns = conn_map_values[0]
     assert len(conns) == 1
-    assert conns[0].closed
+    assert conns[0].connection is None
 
     # Retrieve new connection
     conn = await connection_pool.pop()
-    assert not conn.closed
+    assert conn.connection is None
 
 
 @pytest.mark.asyncio

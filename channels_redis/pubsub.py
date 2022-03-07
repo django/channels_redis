@@ -5,6 +5,7 @@ import sys
 import types
 import uuid
 
+import async_timeout
 import msgpack
 from redis import asyncio as aioredis
 
@@ -181,7 +182,6 @@ class RedisPubSubLoopLayer:
             )
 
         q = self.channels[channel]
-
         try:
             message = await q.get()
         except asyncio.CancelledError:
@@ -299,8 +299,8 @@ class RedisSingleShardConnection:
     async def subscribe(self, channel):
         if channel not in self._subscribed_to:
             self._subscribed_to.add(channel)
-            conn = await self._get_sub_conn()
-            await conn.subscribe(self._receiver.channel(channel))
+            await self._get_sub_conn()
+            await self._receiver.subscribe(channel)
 
     async def unsubscribe(self, channel):
         if channel in self._subscribed_to:
@@ -320,14 +320,12 @@ class RedisSingleShardConnection:
         self._receive_task = None
         self._receiver = None
         if self._sub_conn is not None:
-            self._sub_conn.close()
-            await self._sub_conn.wait_closed()
-            self._put_redis_conn(self._sub_conn)
+            await self._sub_conn.close()
+            await self._put_redis_conn(self._sub_conn)
             self._sub_conn = None
         if self._pub_conn is not None:
-            self._pub_conn.close()
-            await self._pub_conn.wait_closed()
-            self._put_redis_conn(self._pub_conn)
+            await self._pub_conn.close()
+            await self._put_redis_conn(self._pub_conn)
             self._pub_conn = None
         self._subscribed_to = set()
 
@@ -340,14 +338,14 @@ class RedisSingleShardConnection:
         if self._lock is None:
             self._lock = asyncio.Lock()
         async with self._lock:
-            if self._pub_conn is not None and self._pub_conn.closed:
-                self._put_redis_conn(self._pub_conn)
+            if self._pub_conn is not None and self._pub_conn.connection is None:
+                await self._put_redis_conn(self._pub_conn)
                 self._pub_conn = None
             while self._pub_conn is None:
                 try:
                     self._pub_conn = await self._get_redis_conn()
                 except BaseException:
-                    self._put_redis_conn(self._pub_conn)
+                    await self._put_redis_conn(self._pub_conn)
                     logger.warning(
                         f"Failed to connect to Redis publish host: {self.host}; will try again in 1 second..."
                     )
@@ -365,8 +363,8 @@ class RedisSingleShardConnection:
         if self._lock is None:
             self._lock = asyncio.Lock()
         async with self._lock:
-            if self._sub_conn is not None and self._sub_conn.closed:
-                self._put_redis_conn(self._sub_conn)
+            if self._sub_conn is not None and self._sub_conn.connection is None:
+                await self._put_redis_conn(self._sub_conn)
                 self._sub_conn = None
                 self._notify_consumers(self.channel_layer.on_disconnect)
             if self._sub_conn is None:
@@ -387,35 +385,43 @@ class RedisSingleShardConnection:
                     try:
                         self._sub_conn = await self._get_redis_conn()
                     except BaseException:
-                        self._put_redis_conn(self._sub_conn)
+                        await self._put_redis_conn(self._sub_conn)
                         logger.warning(
                             f"Failed to connect to Redis subscribe host: {self.host}; will try again in 1 second..."
                         )
                         await asyncio.sleep(1)
-                self._receiver = aioredis.pubsub.Receiver(on_close=on_close_noop)
-                self._receive_task = asyncio.ensure_future(self._do_receiving())
-                if len(self._subscribed_to) > 0:
-                    # Do our best to recover by resubscribing to the channels that we were previously subscribed to.
-                    resubscribe_to = [
-                        self._receiver.channel(name) for name in self._subscribed_to
-                    ]
-                    await self._sub_conn.subscribe(*resubscribe_to)
+                self._receiver = self._sub_conn.pubsub()
+                if not self._receiver.subscribed:
+                    await self._receiver.subscribe(*self._subscribed_to)
                     self._notify_consumers(self.channel_layer.on_reconnect)
+                self._receive_task = asyncio.ensure_future(self._do_receiving())
             return self._sub_conn
 
     async def _do_receiving(self):
-        async for ch, message in self._receiver.iter():
-            name = ch.name
-            if isinstance(name, bytes):
-                # Reversing what happens here:
-                #   https://github.com/aio-libs/aioredis-py/blob/8a207609b7f8a33e74c7c8130d97186e78cc0052/aioredis/util.py#L17
-                name = name.decode()
-            if name in self.channel_layer.channels:
-                self.channel_layer.channels[name].put_nowait(message)
-            elif name in self.channel_layer.groups:
-                for channel_name in self.channel_layer.groups[name]:
-                    if channel_name in self.channel_layer.channels:
-                        self.channel_layer.channels[channel_name].put_nowait(message)
+        while True:
+            try:
+                async with async_timeout.timeout(1):
+                    message = await self._receiver.get_message(
+                        ignore_subscribe_messages=True
+                    )
+                    if message is not None:
+                        name = message["channel"]
+                        data = message["data"]
+                        if isinstance(name, bytes):
+                            # Reversing what happens here:
+                            #   https://github.com/aio-libs/aioredis-py/blob/8a207609b7f8a33e74c7c8130d97186e78cc0052/aioredis/util.py#L17
+                            name = name.decode()
+                        if name in self.channel_layer.channels:
+                            self.channel_layer.channels[name].put_nowait(data)
+                        elif name in self.channel_layer.groups:
+                            for channel_name in self.channel_layer.groups[name]:
+                                if channel_name in self.channel_layer.channels:
+                                    self.channel_layer.channels[
+                                        channel_name
+                                    ].put_nowait(data)
+                    await asyncio.sleep(0.01)
+            except asyncio.TimeoutError:
+                pass
 
     def _notify_consumers(self, mtype):
         if mtype is not None:
@@ -427,27 +433,30 @@ class RedisSingleShardConnection:
     async def _ensure_redis(self):
         if self._redis is None:
             if self.master_name is None:
-                self._redis = aioredis.ConnectionPool(**self.host)
+                self._redis = aioredis.Redis(
+                    connection_pool=aioredis.ConnectionPool.from_url(
+                        self.host["address"]
+                    )
+                )
             else:
                 # aioredis default timeout is way too low
-                self._redis = await aioredis.sentinel.create_sentinel(
-                    timeout=2, **self.host
+                self._redis = aioredis.sentinel.Sentinel(
+                    self.host["sentinels"], socket_timeout=2
                 )
 
     def _get_aioredis_pool(self):
         if self.master_name is None:
-            return self._redis._pool_or_conn
+            return self._redis.connection_pool
         else:
-            return self._redis.master_for(self.master_name)._pool_or_conn
+            return self._redis.master_for(self.master_name).connection_pool
 
     async def _get_redis_conn(self):
         await self._ensure_redis()
-        conn = await self._get_aioredis_pool().acquire()
-        return aioredis.Redis(connection_pool=conn)
+        return aioredis.Redis(connection_pool=self._get_aioredis_pool())
 
-    def _put_redis_conn(self, conn):
+    async def _put_redis_conn(self, conn):
         if conn:
-            self._get_aioredis_pool().release(conn._pool_or_conn)
+            await self._get_aioredis_pool().release(conn.connection_pool)
 
     async def _do_keepalive(self):
         """
