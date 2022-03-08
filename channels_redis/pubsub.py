@@ -138,6 +138,11 @@ class RedisPubSubLoopLayer:
         """
         return f"{self.prefix}__group__{group}"
 
+    async def _subscribe_to_channel(self, channel):
+        self.channels[channel] = asyncio.Queue()
+        shard = self._get_shard(channel)
+        await shard.subscribe(channel)
+
     extensions = ["groups", "flush"]
 
     ################################################################################
@@ -157,9 +162,7 @@ class RedisPubSubLoopLayer:
         process as a specific channel.
         """
         channel = f"{self.prefix}{prefix}{uuid.uuid4().hex}"
-        self.channels[channel] = asyncio.Queue()
-        shard = self._get_shard(channel)
-        await shard.subscribe(channel)
+        await self._subscribe_to_channel(channel)
         return channel
 
     async def receive(self, channel):
@@ -169,9 +172,7 @@ class RedisPubSubLoopLayer:
         of the waiting coroutines will get the result.
         """
         if channel not in self.channels:
-            raise RuntimeError(
-                'You should only call receive() on channels that you "own" and that were created with `new_channel()`.'
-            )
+            await self._subscribe_to_channel(channel)
 
         q = self.channels[channel]
 
