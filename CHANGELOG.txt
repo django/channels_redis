@@ -1,7 +1,14 @@
-Unreleased
-----------
+3.4.0 (2022-03-10)
+------------------
 
-Dropped support for Python 3.6.
+* Dropped support for Python 3.6, which is now end-of-life, and added CI
+  testing for Python 3.10. (#301).
+
+* Added serialize and deserialize hooks to RedisPubSubChannelLayer (#281).
+
+* Fixed iscoroutine check for pubsub proxied methods (#297).
+
+* Fix workers support when using Redis PubSub layer (#298)
 
 
 3.3.1 (2021-09-30)
