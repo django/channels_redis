@@ -1,5 +1,7 @@
 import asyncio
+import inspect
 import random
+import sys
 
 import async_timeout
 import pytest
@@ -14,6 +16,17 @@ TEST_HOSTS = ["redis://localhost:6379"]
 @pytest.fixture()
 @async_generator
 async def channel_layer():
+    """
+    Channel layer fixture that flushes automatically.
+    """
+    channel_layer = RedisPubSubChannelLayer(hosts=TEST_HOSTS)
+    await yield_(channel_layer)
+    await channel_layer.flush()
+
+
+@pytest.fixture()
+@async_generator
+async def other_channel_layer():
     """
     Channel layer fixture that flushes automatically.
     """
@@ -117,6 +130,30 @@ async def test_groups_same_prefix(channel_layer):
 
 
 @pytest.mark.asyncio
+async def test_receive_on_non_owned_general_channel(channel_layer, other_channel_layer):
+    """
+    Tests receive with general channel that is not owned by the layer
+    """
+    receive_started = asyncio.Event()
+
+    async def receive():
+        receive_started.set()
+        return await other_channel_layer.receive("test-channel")
+
+    receive_task = asyncio.create_task(receive())
+    await receive_started.wait()
+    await asyncio.sleep(0.1)  # Need to give time for "receive" to subscribe
+    await channel_layer.send("test-channel", "message.1")
+
+    try:
+        # Make sure we get the message on the channels that were in
+        async with async_timeout.timeout(1):
+            assert await receive_task == "message.1"
+    finally:
+        receive_task.cancel()
+
+
+@pytest.mark.asyncio
 async def test_random_reset__channel_name(channel_layer):
     """
     Makes sure resetting random seed does not make us reuse channel names.
@@ -164,3 +201,11 @@ def test_multi_event_loop_garbage_collection(channel_layer):
     assert len(channel_layer._layers.values()) == 0
     async_to_sync(test_send_receive)(channel_layer)
     assert len(channel_layer._layers.values()) == 0
+
+
+@pytest.mark.asyncio
+async def test_proxied_methods_coroutine_check(channel_layer):
+    # inspect.iscoroutinefunction does not work for partial functions
+    # below Python 3.8.
+    if sys.version_info >= (3, 8):
+        assert inspect.iscoroutinefunction(channel_layer.send)

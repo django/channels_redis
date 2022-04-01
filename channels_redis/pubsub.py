@@ -1,7 +1,6 @@
 import asyncio
 import functools
 import logging
-import sys
 import types
 import uuid
 
@@ -12,12 +11,6 @@ from redis import asyncio as aioredis
 from .utils import _consistent_hash
 
 logger = logging.getLogger(__name__)
-
-
-if sys.version_info >= (3, 7):
-    get_running_loop = asyncio.get_running_loop
-else:
-    get_running_loop = asyncio.get_event_loop
 
 
 def _wrap_close(proxy, loop):
@@ -33,6 +26,13 @@ def _wrap_close(proxy, loop):
         return self.close(*args, **kwargs)
 
     loop.close = types.MethodType(_wrapper, loop)
+
+
+async def _async_proxy(obj, name, *args, **kwargs):
+    # Must be defined as a function and not a method due to
+    # https://bugs.python.org/issue38364
+    layer = obj._get_layer()
+    return await getattr(layer, name)(*args, **kwargs)
 
 
 class RedisPubSubChannelLayer:
@@ -51,7 +51,7 @@ class RedisPubSubChannelLayer:
             "group_send",
             "flush",
         ):
-            return functools.partial(self._proxy, name)
+            return functools.partial(_async_proxy, self, name)
         else:
             return getattr(self._get_layer(), name)
 
@@ -68,7 +68,7 @@ class RedisPubSubChannelLayer:
         return msgpack.unpackb(message)
 
     def _get_layer(self):
-        loop = get_running_loop()
+        loop = asyncio.get_running_loop()
 
         try:
             layer = self._layers[loop]
@@ -82,13 +82,6 @@ class RedisPubSubChannelLayer:
             _wrap_close(self, loop)
 
         return layer
-
-    def _proxy(self, name, *args, **kwargs):
-        async def coro():
-            layer = self._get_layer()
-            return await getattr(layer, name)(*args, **kwargs)
-
-        return coro()
 
 
 class RedisPubSubLoopLayer:
@@ -146,6 +139,11 @@ class RedisPubSubLoopLayer:
         """
         return f"{self.prefix}__group__{group}"
 
+    async def _subscribe_to_channel(self, channel):
+        self.channels[channel] = asyncio.Queue()
+        shard = self._get_shard(channel)
+        await shard.subscribe(channel)
+
     extensions = ["groups", "flush"]
 
     ################################################################################
@@ -165,9 +163,7 @@ class RedisPubSubLoopLayer:
         process as a specific channel.
         """
         channel = f"{self.prefix}{prefix}{uuid.uuid4().hex}"
-        self.channels[channel] = asyncio.Queue()
-        shard = self._get_shard(channel)
-        await shard.subscribe(channel)
+        await self._subscribe_to_channel(channel)
         return channel
 
     async def receive(self, channel):
@@ -177,9 +173,7 @@ class RedisPubSubLoopLayer:
         of the waiting coroutines will get the result.
         """
         if channel not in self.channels:
-            raise RuntimeError(
-                'You should only call receive() on channels that you "own" and that were created with `new_channel()`.'
-            )
+            await self._subscribe_to_channel(channel)
 
         q = self.channels[channel]
         try:
