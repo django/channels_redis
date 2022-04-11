@@ -93,6 +93,11 @@ class ConnectionPool:
             conn = await self.create_conn(loop)
             conns.append(conn)
         conn = conns.pop()
+        try:
+            # ping the connection to update `.closed` status
+            await conn.ping()
+        except (BrokenPipeError, aioredis.ConnectionClosedError):
+            pass
         if conn.closed:
             conn = await self.pop(loop=loop)
             return conn
