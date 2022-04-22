@@ -260,18 +260,6 @@ class RedisPubSubLoopLayer:
             await shard.flush()
 
 
-def on_close_noop(sender, exc=None):
-    """
-    If you don't pass an `on_close` function to the `Receiver`, then it
-    defaults to one that closes the Receiver whenever the last subscriber
-    unsubscribes. That is not what we want; instead, we want the Receiver
-    to continue even if no one is subscribed, because soon someone *will*
-    subscribe and we want things to continue from there. Passing this
-    empty function solves it.
-    """
-    pass
-
-
 class RedisSingleShardConnection:
     def __init__(self, host, channel_layer):
         self.host = host.copy() if type(host) is dict else {"address": host}
@@ -427,26 +415,20 @@ class RedisSingleShardConnection:
     async def _ensure_redis(self):
         if self._redis is None:
             if self.master_name is None:
-                self._redis = aioredis.Redis(
-                    connection_pool=aioredis.ConnectionPool.from_url(
-                        self.host["address"]
-                    )
-                )
+                pool = aioredis.ConnectionPool.from_url(self.host["address"])
             else:
                 # aioredis default timeout is way too low
-                self._redis = aioredis.sentinel.Sentinel(
-                    self.host["sentinels"], socket_timeout=2
+                pool = aioredis.sentinel.SentinelConnectionPool(
+                    self.master_name,
+                    aioredis.sentinel.Sentinel(
+                        self.host["sentinels"], socket_timeout=2
+                    ),
                 )
-
-    def _get_aioredis_pool(self):
-        if self.master_name is None:
-            return self._redis.connection_pool
-        else:
-            return self._redis.master_for(self.master_name).connection_pool
+            self._redis = aioredis.Redis(connection_pool=pool)
 
     async def _get_redis_conn(self):
         await self._ensure_redis()
-        return aioredis.Redis(connection_pool=self._get_aioredis_pool())
+        return self._redis
 
     async def _put_redis_conn(self, conn):
         if conn:
