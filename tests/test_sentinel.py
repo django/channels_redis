@@ -6,7 +6,11 @@ import pytest
 from async_generator import async_generator, yield_
 
 from asgiref.sync import async_to_sync
-from channels_redis.core import ChannelFull, ConnectionPool, RedisChannelLayer
+from channels_redis.core import (
+    ChannelFull,
+    RedisChannelLayer,
+    RedisSentinelChannelLayer,
+)
 
 SENTINEL_MASTER = "sentinel"
 TEST_HOSTS = [{"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER}]
@@ -61,7 +65,7 @@ async def channel_layer():
     """
     Channel layer fixture that flushes automatically.
     """
-    channel_layer = RedisChannelLayer(
+    channel_layer = RedisSentinelChannelLayer(
         hosts=TEST_HOSTS, capacity=3, channel_capacity={"tiny": 1}
     )
     await yield_(channel_layer)
@@ -74,7 +78,7 @@ async def channel_layer_multiple_hosts():
     """
     Channel layer fixture that flushes automatically.
     """
-    channel_layer = RedisChannelLayer(hosts=MULTIPLE_TEST_HOSTS, capacity=3)
+    channel_layer = RedisSentinelChannelLayer(hosts=MULTIPLE_TEST_HOSTS, capacity=3)
     await yield_(channel_layer)
     await channel_layer.flush()
 
@@ -98,7 +102,7 @@ def test_double_receive(channel_layer):
     Makes sure we can receive from two different event loops using
     process-local channel names.
     """
-    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS, capacity=3)
+    channel_layer = RedisSentinelChannelLayer(hosts=TEST_HOSTS, capacity=3)
 
     # Aioredis connections can't be used from different event loops, so
     # send and close need to be done in the same async_to_sync call.
@@ -146,7 +150,7 @@ async def test_send_specific_capacity(channel_layer):
     """
     Makes sure we get ChannelFull when we hit the send capacity on a specific channel
     """
-    custom_channel_layer = RedisChannelLayer(
+    custom_channel_layer = RedisSentinelChannelLayer(
         hosts=TEST_HOSTS,
         capacity=3,
         channel_capacity={"one": 1},
@@ -176,7 +180,7 @@ async def test_multi_send_receive(channel_layer):
     """
     Tests overlapping sends and receives, and ordering.
     """
-    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
+    channel_layer = RedisSentinelChannelLayer(hosts=TEST_HOSTS)
     await channel_layer.send("test-channel-3", {"type": "message.1"})
     await channel_layer.send("test-channel-3", {"type": "message.2"})
     await channel_layer.send("test-channel-3", {"type": "message.3"})
@@ -211,7 +215,7 @@ async def test_groups_basic(channel_layer):
     """
     Tests basic group operation.
     """
-    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
+    channel_layer = RedisSentinelChannelLayer(hosts=TEST_HOSTS)
     channel_name1 = await channel_layer.new_channel(prefix="test-gr-chan-1")
     channel_name2 = await channel_layer.new_channel(prefix="test-gr-chan-2")
     channel_name3 = await channel_layer.new_channel(prefix="test-gr-chan-3")
@@ -236,7 +240,7 @@ async def test_groups_channel_full(channel_layer):
     """
     Tests that group_send ignores ChannelFull
     """
-    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
+    channel_layer = RedisSentinelChannelLayer(hosts=TEST_HOSTS)
     await channel_layer.group_add("test-group", "test-gr-chan-1")
     await channel_layer.group_send("test-group", {"type": "message.1"})
     await channel_layer.group_send("test-group", {"type": "message.1"})
@@ -251,7 +255,7 @@ async def test_groups_multiple_hosts(channel_layer_multiple_hosts):
     """
     Tests advanced group operation with multiple hosts.
     """
-    channel_layer = RedisChannelLayer(hosts=MULTIPLE_TEST_HOSTS, capacity=100)
+    channel_layer = RedisSentinelChannelLayer(hosts=MULTIPLE_TEST_HOSTS, capacity=100)
     channel_name1 = await channel_layer.new_channel(prefix="channel1")
     channel_name2 = await channel_layer.new_channel(prefix="channel2")
     channel_name3 = await channel_layer.new_channel(prefix="channel3")
@@ -279,7 +283,7 @@ async def test_groups_same_prefix(channel_layer):
     """
     Tests group_send with multiple channels with same channel prefix
     """
-    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS)
+    channel_layer = RedisSentinelChannelLayer(hosts=TEST_HOSTS)
     channel_name1 = await channel_layer.new_channel(prefix="test-gr-chan")
     channel_name2 = await channel_layer.new_channel(prefix="test-gr-chan")
     channel_name3 = await channel_layer.new_channel(prefix="test-gr-chan")
@@ -313,7 +317,7 @@ async def test_groups_multiple_hosts_performance(
     Tests advanced group operation: can send efficiently to multiple channels
     with multiple hosts within a certain timeout
     """
-    channel_layer = RedisChannelLayer(hosts=MULTIPLE_TEST_HOSTS, capacity=100)
+    channel_layer = RedisSentinelChannelLayer(hosts=MULTIPLE_TEST_HOSTS, capacity=100)
 
     channels = []
     for i in range(0, num_channels):
@@ -405,33 +409,6 @@ async def test_group_send_capacity_multiple_channels(channel_layer, caplog):
         assert (
             record.getMessage() == "1 of 2 channels over capacity in group test-group"
         )
-
-
-@pytest.mark.asyncio
-async def test_connection_pool_pop():
-    """
-    Makes sure that the connection pool does not return closed connections
-    """
-
-    # Setup scenario
-    connection_pool = ConnectionPool(TEST_HOSTS[0])
-    conn = await connection_pool.pop()
-
-    # Emualte a disconnect and return it to the pool
-    await conn.close()
-    assert conn.connection is None
-    connection_pool.push(conn)
-
-    # Ensure the closed connection is inside the pool
-    conn_map_values = list(connection_pool.conn_map.values())
-    assert len(conn_map_values) == 1
-    conns = conn_map_values[0]
-    assert len(conns) == 1
-    assert conns[0].connection is None
-
-    # Retrieve new connection
-    conn = await connection_pool.pop()
-    assert conn.connection is None
 
 
 @pytest.mark.asyncio

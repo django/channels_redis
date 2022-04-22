@@ -450,7 +450,7 @@ class RedisSingleShardConnection:
 
     async def _put_redis_conn(self, conn):
         if conn:
-            await self._get_aioredis_pool().release(conn.connection_pool)
+            await conn.close()
 
     async def _do_keepalive(self):
         """
