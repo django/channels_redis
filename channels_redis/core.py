@@ -148,9 +148,24 @@ class RedisChannelLayer(BaseChannelLayer):
         self.receive_clean_locks = ChannelLock()
 
     def create_pools(self):
-        return [
-            aioredis.ConnectionPool.from_url(host["address"]) for host in self.hosts
-        ]
+        pools = []
+        for host in self.hosts:
+            if "address" in host:
+                pools.append(aioredis.ConnectionPool.from_url(host["address"]))
+            elif "master_name" in host:
+                sentinels = host.pop("sentinels")
+                master_name = host.pop("master_name")
+                pools.append(
+                    aioredis.sentinel.SentinelConnectionPool(
+                        master_name,
+                        aioredis.sentinel.Sentinel(sentinels, socket_timeout=2),
+                        **host
+                    )
+                )
+            else:
+                pools.append(aioredis.ConnectionPool(**host))
+
+        return pools
 
     def decode_hosts(self, hosts):
         """
@@ -169,7 +184,6 @@ class RedisChannelLayer(BaseChannelLayer):
         # Decode each hosts entry into a kwargs dict
         result = []
         for entry in hosts:
-            # TODO: re-add support for dict-based connections
             if isinstance(entry, dict):
                 result.append(entry)
             else:
@@ -769,23 +783,3 @@ class RedisChannelLayer(BaseChannelLayer):
                 "There are only %s hosts - you asked for %s!" % (self.ring_size, index)
             )
         return aioredis.Redis(connection_pool=self.pools[index])
-
-
-class RedisSentinelChannelLayer(RedisChannelLayer):
-    def create_pools(self):
-        return [
-            aioredis.sentinel.SentinelConnectionPool(
-                kwargs.pop("master_name"),
-                aioredis.sentinel.Sentinel(sentinels, socket_timeout=2),
-                **kwargs
-            )
-            for (sentinels, kwargs) in self.hosts
-        ]
-
-    def decode_hosts(self, hosts):
-        result = []
-        for h in hosts:
-            kwargs = h.copy()
-            sentinels = kwargs.pop("sentinels")
-            result.append((sentinels, kwargs))
-        return result
