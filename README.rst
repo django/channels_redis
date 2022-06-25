@@ -77,10 +77,11 @@ Sentinel connections require dicts conforming to:
         "sentinels": [
             ("localhost", 26379),
         ],
-        "master_name": SENTINEL_MASTER_SET
+        "master_name": SENTINEL_MASTER_SET,
+        **kwargs
     }
 
-note the additional ``master_name`` key specifying the Sentinel master set. Plain Redis and Sentinel connections can be mixed and matched if
+note the additional ``master_name`` key specifying the Sentinel master set and any additional connection kwargs can also be passed. Plain Redis and Sentinel connections can be mixed and matched if
 sharding.
 
 If your server is listening on a UNIX domain socket, you can also use that to connect: ``["unix:///path/to/redis.sock"]``.
