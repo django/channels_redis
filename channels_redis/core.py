@@ -158,7 +158,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 pools.append(
                     aioredis.sentinel.SentinelConnectionPool(
                         master_name,
-                        aioredis.sentinel.Sentinel(sentinels, socket_timeout=2),
+                        aioredis.sentinel.Sentinel(sentinels),
                         **host
                     )
                 )
@@ -186,6 +186,8 @@ class RedisChannelLayer(BaseChannelLayer):
         for entry in hosts:
             if isinstance(entry, dict):
                 result.append(entry)
+            elif isinstance(entry, tuple):
+                result.append({"host": entry[0], "port": entry[1]})
             else:
                 result.append({"address": entry})
         return result
