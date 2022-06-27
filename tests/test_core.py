@@ -409,7 +409,7 @@ async def test_receive_cancel(channel_layer):
     """
     Makes sure we can cancel a receive without blocking
     """
-    channel_layer = RedisChannelLayer(capacity=20)
+    channel_layer = RedisChannelLayer(capacity=30)
     channel = await channel_layer.new_channel()
     delay = 0
     while delay < 0.01:
