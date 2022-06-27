@@ -157,9 +157,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 master_name = host.pop("master_name")
                 pools.append(
                     aioredis.sentinel.SentinelConnectionPool(
-                        master_name,
-                        aioredis.sentinel.Sentinel(sentinels),
-                        **host
+                        master_name, aioredis.sentinel.Sentinel(sentinels), **host
                     )
                 )
             else:
