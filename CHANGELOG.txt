@@ -1,3 +1,11 @@
+4.0.0b1 (2022-06-28)
+--------------------
+
+This is a beta release to allow testing with the new redis-py dependency.
+
+* Migrated from aioredis to redis-py.
+
+
 3.4.0 (2022-03-10)
 ------------------
 
