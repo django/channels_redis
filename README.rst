@@ -11,7 +11,7 @@ Provides Django Channels channel layers that use Redis as a backing store.
 
 There are two available implementations:
 
-* ``RedisChannelLayer`` is the orignal layer, and implements channel and group
+* ``RedisChannelLayer`` is the original layer, and implements channel and group
   handling itself.
 * ``RedisPubSubChannelLayer`` is newer and leverages Redis Pub/Sub for message
   dispatch. This layer is currently at *Beta* status, meaning it may be subject
@@ -65,13 +65,23 @@ Possible options for ``CONFIG`` are listed below.
 ``hosts``
 ~~~~~~~~~
 
-The server(s) to connect to, as either URIs, ``(host, port)`` tuples, or dicts conforming to `create_connection <https://aioredis.readthedocs.io/en/v1.1.0/api_reference.html#aioredis.create_connection>`_.
-Defaults to ``['localhost', 6379]``. Pass multiple hosts to enable sharding,
+The server(s) to connect to, as either URIs, ``(host, port)`` tuples, or dicts conforming to `redis Connection <https://redis-py.readthedocs.io/en/v4.3.3/connections.html#redis.connection.Connection>`_.
+Defaults to ``redis://localhost:6379``. Pass multiple hosts to enable sharding,
 but note that changing the host list will lose some sharded data.
 
-Sentinel connections require dicts conforming to `create_sentinel <https://aioredis.readthedocs.io/en/v1.3.0/sentinel.html#aioredis.sentinel.create_sentinel>`_
-with an additional `master_name` key specifying the Sentinel
-master set. Plain Redis and Sentinel connections can be mixed and matched if
+Sentinel connections require dicts conforming to:
+
+.. code-block::
+
+    {
+        "sentinels": [
+            ("localhost", 26379),
+        ],
+        "master_name": SENTINEL_MASTER_SET,
+        **kwargs
+    }
+
+note the additional ``master_name`` key specifying the Sentinel master set and any additional connection kwargs can also be passed. Plain Redis and Sentinel connections can be mixed and matched if
 sharding.
 
 If your server is listening on a UNIX domain socket, you can also use that to connect: ``["unix:///path/to/redis.sock"]``.
@@ -225,6 +235,28 @@ Your Redis server must support the following commands:
   ``ZREM``, ``ZREMRANGEBYSCORE``
 
 * ``RedisPubSubChannelLayer`` uses ``PUBLISH``, ``SUBSCRIBE``, ``UNSUBSCRIBE``
+
+Local Development
+-----------------
+
+You can run the necessary Redis instances in Docker with the following commands:
+
+.. code-block:: shell
+
+    $ docker network create redis-network
+    $ docker run --rm \
+        --network=redis-network \
+        --name=redis-server \
+        -p 6379:6379 \
+        redis
+    $ docker run --rm \
+        --network redis-network \
+        --name redis-sentinel \
+        -e REDIS_MASTER_HOST=redis-server \
+        -e REDIS_MASTER_SET=sentinel \
+        -e REDIS_SENTINEL_QUORUM=1 \
+        -p 26379:26379 \
+        bitnami/redis-sentinel
 
 Contributing
 ------------

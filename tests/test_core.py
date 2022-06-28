@@ -6,9 +6,9 @@ import pytest
 from async_generator import async_generator, yield_
 
 from asgiref.sync import async_to_sync
-from channels_redis.core import ChannelFull, ConnectionPool, RedisChannelLayer
+from channels_redis.core import ChannelFull, RedisChannelLayer
 
-TEST_HOSTS = [("localhost", 6379)]
+TEST_HOSTS = ["redis://localhost:6379"]
 
 MULTIPLE_TEST_HOSTS = [
     "redis://localhost:6379/0",
@@ -405,38 +405,11 @@ async def test_group_send_capacity_multiple_channels(channel_layer, caplog):
 
 
 @pytest.mark.asyncio
-async def test_connection_pool_pop():
-    """
-    Makes sure that the connection pool does not return closed connections
-    """
-
-    # Setup scenario
-    connection_pool = ConnectionPool({"address": TEST_HOSTS[0]})
-    conn = await connection_pool.pop()
-
-    # Emualte a disconnect and return it to the pool
-    conn.close()
-    assert conn.closed
-    connection_pool.push(conn)
-
-    # Ensure the closed connection is inside the pool
-    conn_map_values = list(connection_pool.conn_map.values())
-    assert len(conn_map_values) == 1
-    conns = conn_map_values[0]
-    assert len(conns) == 1
-    assert conns[0].closed
-
-    # Retrieve new connection
-    conn = await connection_pool.pop()
-    assert not conn.closed
-
-
-@pytest.mark.asyncio
 async def test_receive_cancel(channel_layer):
     """
     Makes sure we can cancel a receive without blocking
     """
-    channel_layer = RedisChannelLayer(capacity=20)
+    channel_layer = RedisChannelLayer(capacity=30)
     channel = await channel_layer.new_channel()
     delay = 0
     while delay < 0.01:

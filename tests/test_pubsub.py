@@ -10,7 +10,7 @@ from async_generator import async_generator, yield_
 from asgiref.sync import async_to_sync
 from channels_redis.pubsub import RedisPubSubChannelLayer
 
-TEST_HOSTS = [("localhost", 6379)]
+TEST_HOSTS = ["redis://localhost:6379"]
 
 
 @pytest.fixture()
