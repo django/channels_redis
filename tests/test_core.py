@@ -401,6 +401,20 @@ async def test_group_send_capacity_multiple_channels(channel_layer, caplog):
         )
 
 
+def test_repeated_group_send_with_async_to_sync(channel_layer):
+    """
+    Makes sure repeated group_send calls wrapped in async_to_sync
+    process-local channel names.
+    """
+    channel_layer = RedisChannelLayer(hosts=TEST_HOSTS, capacity=3)
+
+    try:
+        async_to_sync(channel_layer.group_send)('channel_name_1', {"type": "test.message.1"})
+        async_to_sync(channel_layer.group_send)('channel_name_2', {"type": "test.message.2"})
+    except RuntimeError as exc:
+        pytest.fail(F"repeated async_to_sync wrapped group_send calls raised {exc}")
+
+
 @pytest.mark.asyncio
 async def test_receive_cancel(channel_layer):
     """
