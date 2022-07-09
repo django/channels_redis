@@ -290,7 +290,7 @@ class RedisChannelLayer(BaseChannelLayer):
                 self.client_prefix + "!"
             ), "Wrong client prefix"
             # Enter receiving section
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             self.receive_count += 1
             try:
                 if self.receive_count == 1:
