@@ -7,7 +7,6 @@ import itertools
 import logging
 import random
 import time
-import types
 import uuid
 
 import msgpack
@@ -19,23 +18,6 @@ from channels.layers import BaseChannelLayer
 from .utils import _consistent_hash
 
 logger = logging.getLogger(__name__)
-
-
-def _wrap_close(loop, pool):
-    """
-    Decorate an event loop's close method with our own.
-    """
-    original_impl = loop.close
-
-    def _wrapper(self, *args, **kwargs):
-        # If the event loop was closed, there's nothing we can do anymore.
-        if not self.is_closed():
-            self.run_until_complete(pool.close_loop(self))
-        # Restore the original close() implementation after we're done.
-        self.close = original_impl
-        return self.close(*args, **kwargs)
-
-    loop.close = types.MethodType(_wrapper, loop)
 
 
 class ChannelLock:
@@ -72,10 +54,6 @@ class ChannelLock:
         if self.wait_counts[channel] < 1:
             del self.locks[channel]
             del self.wait_counts[channel]
-
-
-class UnsupportedRedis(Exception):
-    pass
 
 
 class BoundedQueue(asyncio.Queue):
@@ -634,41 +612,6 @@ class RedisChannelLayer(BaseChannelLayer):
                     len(channel_names),
                     group,
                 )
-
-    def _map_channel_to_connection(self, channel_names, message):
-        """
-        For a list of channel names, bucket each one to a dict keyed by the
-        connection index
-        Also for each channel create a message specific to that channel, adding
-        the __asgi_channel__ key to the message
-        We also return a mapping from channel names to their corresponding Redis
-        keys, and a mapping of channels to their capacity
-        """
-        connection_to_channels = collections.defaultdict(list)
-        channel_to_message = dict()
-        channel_to_capacity = dict()
-        channel_to_key = dict()
-
-        for channel in channel_names:
-            channel_non_local_name = channel
-            if "!" in channel:
-                message = dict(message.items())
-                message["__asgi_channel__"] = channel
-                channel_non_local_name = self.non_local_name(channel)
-            channel_key = self.prefix + channel_non_local_name
-            idx = self.consistent_hash(channel_non_local_name)
-            connection_to_channels[idx].append(channel_key)
-            channel_to_capacity[channel] = self.get_capacity(channel)
-            channel_to_message[channel] = self.serialize(message)
-            # We build a
-            channel_to_key[channel] = channel_key
-
-        return (
-            connection_to_channels,
-            channel_to_message,
-            channel_to_capacity,
-            channel_to_key,
-        )
 
     def _map_channel_keys_to_connection(self, channel_names, message):
         """
