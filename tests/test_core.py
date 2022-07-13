@@ -409,10 +409,14 @@ def test_repeated_group_send_with_async_to_sync(channel_layer):
     channel_layer = RedisChannelLayer(hosts=TEST_HOSTS, capacity=3)
 
     try:
-        async_to_sync(channel_layer.group_send)('channel_name_1', {"type": "test.message.1"})
-        async_to_sync(channel_layer.group_send)('channel_name_2', {"type": "test.message.2"})
+        async_to_sync(channel_layer.group_send)(
+            "channel_name_1", {"type": "test.message.1"}
+        )
+        async_to_sync(channel_layer.group_send)(
+            "channel_name_2", {"type": "test.message.2"}
+        )
     except RuntimeError as exc:
-        pytest.fail(F"repeated async_to_sync wrapped group_send calls raised {exc}")
+        pytest.fail(f"repeated async_to_sync wrapped group_send calls raised {exc}")
 
 
 @pytest.mark.asyncio
