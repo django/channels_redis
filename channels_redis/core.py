@@ -100,8 +100,9 @@ class RedisChannelLayer(BaseChannelLayer):
         # Configure the host objects
         self.hosts = self.decode_hosts(hosts)
         self.ring_size = len(self.hosts)
-        # Cached redis connection pools
-        self.pools = self.create_pools()
+        # Cached redis connection pools and the event loop they are from
+        self.pools = {}
+        self.pools_loop = None
         # Normal channels choose a host index by cycling through the available hosts
         self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
@@ -125,23 +126,19 @@ class RedisChannelLayer(BaseChannelLayer):
         # a message back into the main queue before its cleanup has completed
         self.receive_clean_locks = ChannelLock()
 
-    def create_pools(self):
-        pools = []
-        for host in self.hosts:
-            if "address" in host:
-                pools.append(aioredis.ConnectionPool.from_url(host["address"]))
-            elif "master_name" in host:
-                sentinels = host.pop("sentinels")
-                master_name = host.pop("master_name")
-                pools.append(
-                    aioredis.sentinel.SentinelConnectionPool(
-                        master_name, aioredis.sentinel.Sentinel(sentinels), **host
-                    )
-                )
-            else:
-                pools.append(aioredis.ConnectionPool(**host))
+    def create_pool(self, index):
+        host = self.hosts[index]
 
-        return pools
+        if "address" in host:
+            return aioredis.ConnectionPool.from_url(host["address"])
+        elif "master_name" in host:
+            sentinels = host.pop("sentinels")
+            master_name = host.pop("master_name")
+            return aioredis.sentinel.SentinelConnectionPool(
+                master_name, aioredis.sentinel.Sentinel(sentinels), **host
+            )
+        else:
+            return aioredis.ConnectionPool(**host)
 
     def decode_hosts(self, hosts):
         """
@@ -497,8 +494,8 @@ class RedisChannelLayer(BaseChannelLayer):
         # pools without flushing first.
         await self.wait_received()
 
-        for pool in self.pools:
-            await pool.disconnect()
+        for index in self.pools:
+            await self.pools[index].disconnect()
 
     async def wait_received(self):
         """
@@ -725,4 +722,16 @@ class RedisChannelLayer(BaseChannelLayer):
             raise ValueError(
                 "There are only %s hosts - you asked for %s!" % (self.ring_size, index)
             )
+
+        try:
+            loop = asyncio.get_running_loop()
+            if self.pools_loop != loop:
+                self.pools = {}
+                self.pools_loop = loop
+        except RuntimeError:
+            pass
+
+        if index not in self.pools:
+            self.pools[index] = self.create_pool(index)
+
         return aioredis.Redis(connection_pool=self.pools[index])
