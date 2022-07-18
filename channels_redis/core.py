@@ -134,8 +134,11 @@ class RedisChannelLayer(BaseChannelLayer):
         elif "master_name" in host:
             sentinels = host.pop("sentinels")
             master_name = host.pop("master_name")
+            sentinel_kwargs = host.pop("sentinel_kwargs", None)
             return aioredis.sentinel.SentinelConnectionPool(
-                master_name, aioredis.sentinel.Sentinel(sentinels), **host
+                master_name,
+                aioredis.sentinel.Sentinel(sentinels, sentinel_kwargs=sentinel_kwargs),
+                **host
             )
         else:
             return aioredis.ConnectionPool(**host)

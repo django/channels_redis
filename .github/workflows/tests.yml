@@ -41,6 +41,7 @@ jobs:
           REDIS_MASTER_HOST: redis
           REDIS_MASTER_SET: sentinel
           REDIS_SENTINEL_QUORUM: "1"
+          REDIS_SENTINEL_PASSWORD: channels_redis
 
     steps:
       - uses: actions/checkout@v2

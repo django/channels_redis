@@ -8,19 +8,76 @@ from asgiref.sync import async_to_sync
 from channels_redis.core import ChannelFull, RedisChannelLayer
 
 SENTINEL_MASTER = "sentinel"
-TEST_HOSTS = [{"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER}]
+SENTINEL_KWARGS = {"password": "channels_redis"}
 
+TEST_HOSTS = [
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+    }
+]
 MULTIPLE_TEST_HOSTS = [
-    {"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER, "db": 0},
-    {"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER, "db": 1},
-    {"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER, "db": 2},
-    {"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER, "db": 3},
-    {"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER, "db": 4},
-    {"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER, "db": 5},
-    {"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER, "db": 6},
-    {"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER, "db": 7},
-    {"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER, "db": 8},
-    {"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER, "db": 9},
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+        "db": 0,
+    },
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+        "db": 1,
+    },
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+        "db": 2,
+    },
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+        "db": 3,
+    },
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+        "db": 4,
+    },
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+        "db": 5,
+    },
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+        "db": 6,
+    },
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+        "db": 7,
+    },
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+        "db": 8,
+    },
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+        "db": 9,
+    },
 ]
 
 

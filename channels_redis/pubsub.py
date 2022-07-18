@@ -263,6 +263,7 @@ class RedisSingleShardConnection:
     def __init__(self, host, channel_layer):
         self.host = host.copy() if type(host) is dict else {"address": host}
         self.master_name = self.host.pop("master_name", None)
+        self.sentinel_kwargs = self.host.pop("sentinel_kwargs", None)
         self.channel_layer = channel_layer
         self._subscribed_to = set()
         self._lock = asyncio.Lock()
@@ -348,7 +349,9 @@ class RedisSingleShardConnection:
                 pool = aioredis.sentinel.SentinelConnectionPool(
                     self.master_name,
                     aioredis.sentinel.Sentinel(
-                        self.host["sentinels"], socket_timeout=2
+                        self.host["sentinels"],
+                        socket_timeout=2,
+                        sentinel_kwargs=self.sentinel_kwargs,
                     ),
                 )
             self._redis = aioredis.Redis(connection_pool=pool)
