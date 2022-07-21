@@ -33,7 +33,6 @@ async def test_send_receive(channel_layer):
     assert message["text"] == "Ahoy-hoy!"
 
 
-@pytest.mark.asyncio
 def test_send_receive_sync(channel_layer, event_loop):
     _await = event_loop.run_until_complete
     channel = _await(channel_layer.new_channel())
@@ -59,7 +58,6 @@ async def test_multi_send_receive(channel_layer):
     assert (await channel_layer.receive(channel))["type"] == "message.3"
 
 
-@pytest.mark.asyncio
 def test_multi_send_receive_sync(channel_layer, event_loop):
     _await = event_loop.run_until_complete
     channel = _await(channel_layer.new_channel())
