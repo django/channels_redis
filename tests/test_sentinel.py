@@ -3,7 +3,6 @@ import random
 
 import async_timeout
 import pytest
-from async_generator import async_generator, yield_
 
 from asgiref.sync import async_to_sync
 from channels_redis.core import ChannelFull, RedisChannelLayer
@@ -56,7 +55,6 @@ async def group_send_three_messages_with_delay(group_name, channel_layer, delay)
 
 
 @pytest.fixture()
-@async_generator
 async def channel_layer():
     """
     Channel layer fixture that flushes automatically.
@@ -64,18 +62,17 @@ async def channel_layer():
     channel_layer = RedisChannelLayer(
         hosts=TEST_HOSTS, capacity=3, channel_capacity={"tiny": 1}
     )
-    await yield_(channel_layer)
+    yield channel_layer
     await channel_layer.flush()
 
 
 @pytest.fixture()
-@async_generator
 async def channel_layer_multiple_hosts():
     """
     Channel layer fixture that flushes automatically.
     """
     channel_layer = RedisChannelLayer(hosts=MULTIPLE_TEST_HOSTS, capacity=3)
-    await yield_(channel_layer)
+    yield channel_layer
     await channel_layer.flush()
 
 
