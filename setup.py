@@ -33,7 +33,7 @@ setup(
         "redis>=4.2.0",
         "msgpack~=1.0",
         "asgiref>=3.2.10,<4",
-        "channels<4",
+        "channels",
     ],
     extras_require={"cryptography": crypto_requires, "tests": test_requires},
 )
