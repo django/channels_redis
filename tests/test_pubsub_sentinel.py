@@ -161,3 +161,36 @@ def test_multi_event_loop_garbage_collection(channel_layer):
     assert len(channel_layer._layers.values()) == 0
     async_to_sync(test_send_receive)(channel_layer)
     assert len(channel_layer._layers.values()) == 0
+
+
+@pytest.mark.asyncio
+async def test_receive_hang(channel_layer):
+    channel_name = await channel_layer.new_channel(prefix="test-channel")
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(channel_layer.receive(channel_name), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_auto_reconnect(channel_layer):
+    """
+    Tests redis-py reconnect and resubscribe
+    """
+    channel_name1 = await channel_layer.new_channel(prefix="test-gr-chan-1")
+    channel_name2 = await channel_layer.new_channel(prefix="test-gr-chan-2")
+    channel_name3 = await channel_layer.new_channel(prefix="test-gr-chan-3")
+    await channel_layer.group_add("test-group", channel_name1)
+    await channel_layer.group_add("test-group", channel_name2)
+    await channel_layer._shards[0]._redis.close(close_connection_pool=True)
+    await channel_layer.group_add("test-group", channel_name3)
+    await channel_layer.group_discard("test-group", channel_name2)
+    await channel_layer._shards[0]._redis.close(close_connection_pool=True)
+    await asyncio.sleep(1)
+    await channel_layer.group_send("test-group", {"type": "message.1"})
+    # Make sure we get the message on the two channels that were in
+    async with async_timeout.timeout(5):
+        assert (await channel_layer.receive(channel_name1))["type"] == "message.1"
+        assert (await channel_layer.receive(channel_name3))["type"] == "message.1"
+    # Make sure the removed channel did not get the message
+    with pytest.raises(asyncio.TimeoutError):
+        async with async_timeout.timeout(1):
+            await channel_layer.receive(channel_name2)

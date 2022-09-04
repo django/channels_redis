@@ -4,7 +4,6 @@ import logging
 import types
 import uuid
 
-import async_timeout
 import msgpack
 from redis import asyncio as aioredis
 
@@ -178,7 +177,7 @@ class RedisPubSubLoopLayer:
         q = self.channels[channel]
         try:
             message = await q.get()
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, asyncio.TimeoutError, GeneratorExit):
             # We assume here that the reason we are cancelled is because the consumer
             # is exiting, therefore we need to cleanup by unsubscribe below. Indeed,
             # currently the way that Django Channels works, this is a safe assumption.
@@ -266,153 +265,81 @@ class RedisSingleShardConnection:
         self.master_name = self.host.pop("master_name", None)
         self.channel_layer = channel_layer
         self._subscribed_to = set()
-        self._lock = None
+        self._lock = asyncio.Lock()
         self._redis = None
-        self._pub_conn = None
-        self._sub_conn = None
-        self._receiver = None
+        self._pubsub = None
         self._receive_task = None
-        self._keepalive_task = None
 
     async def publish(self, channel, message):
-        conn = await self._get_pub_conn()
-        await conn.publish(channel, message)
+        async with self._lock:
+            self._ensure_redis()
+            await self._redis.publish(channel, message)
 
     async def subscribe(self, channel):
-        if channel not in self._subscribed_to:
-            self._subscribed_to.add(channel)
-            await self._get_sub_conn()
-            await self._receiver.subscribe(channel)
+        async with self._lock:
+            if channel not in self._subscribed_to:
+                self._ensure_redis()
+                self._ensure_receiver()
+                await self._pubsub.subscribe(channel)
+                self._subscribed_to.add(channel)
 
     async def unsubscribe(self, channel):
-        if channel in self._subscribed_to:
-            self._subscribed_to.remove(channel)
-            conn = await self._get_sub_conn()
-            await conn.unsubscribe(channel)
+        async with self._lock:
+            if channel in self._subscribed_to:
+                self._ensure_redis()
+                self._ensure_receiver()
+                await self._pubsub.unsubscribe(channel)
+                self._subscribed_to.remove(channel)
 
     async def flush(self):
-        for task in [self._keepalive_task, self._receive_task]:
-            if task is not None:
-                task.cancel()
+        async with self._lock:
+            if self._receive_task is not None:
+                self._receive_task.cancel()
                 try:
-                    await task
+                    await self._receive_task
                 except asyncio.CancelledError:
                     pass
-        self._keepalive_task = None
-        self._receive_task = None
-        self._receiver = None
-        if self._sub_conn is not None:
-            await self._sub_conn.close()
-            await self._put_redis_conn(self._sub_conn)
-            self._sub_conn = None
-        if self._pub_conn is not None:
-            await self._pub_conn.close()
-            await self._put_redis_conn(self._pub_conn)
-            self._pub_conn = None
-        self._subscribed_to = set()
-
-    async def _get_pub_conn(self):
-        """
-        Return the connection to this shard that is used for *publishing* messages.
-
-        If the connection is dead, automatically reconnect.
-        """
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        async with self._lock:
-            if self._pub_conn is not None and self._pub_conn.connection is None:
-                await self._put_redis_conn(self._pub_conn)
-                self._pub_conn = None
-            while self._pub_conn is None:
-                try:
-                    self._pub_conn = await self._get_redis_conn()
-                except BaseException:
-                    await self._put_redis_conn(self._pub_conn)
-                    logger.warning(
-                        f"Failed to connect to Redis publish host: {self.host}; will try again in 1 second..."
-                    )
-                    await asyncio.sleep(1)
-            return self._pub_conn
-
-    async def _get_sub_conn(self):
-        """
-        Return the connection to this shard that is used for *subscribing* to channels.
-
-        If the connection is dead, automatically reconnect and resubscribe to all our channels!
-        """
-        if self._keepalive_task is None:
-            self._keepalive_task = asyncio.ensure_future(self._do_keepalive())
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        async with self._lock:
-            if self._sub_conn is not None and self._sub_conn.connection is None:
-                await self._put_redis_conn(self._sub_conn)
-                self._sub_conn = None
-                self._notify_consumers(self.channel_layer.on_disconnect)
-            if self._sub_conn is None:
-                if self._receive_task is not None:
-                    self._receive_task.cancel()
-                    try:
-                        await self._receive_task
-                    except asyncio.CancelledError:
-                        # This is the normal case, that `asyncio.CancelledError` is throw. All good.
-                        pass
-                    except BaseException:
-                        logger.exception(
-                            "Unexpected exception while canceling the receiver task:"
-                        )
-                        # Don't re-raise here. We don't actually care why `_receive_task` didn't exit cleanly.
-                    self._receive_task = None
-                while self._sub_conn is None:
-                    try:
-                        self._sub_conn = await self._get_redis_conn()
-                    except BaseException:
-                        await self._put_redis_conn(self._sub_conn)
-                        logger.warning(
-                            f"Failed to connect to Redis subscribe host: {self.host}; will try again in 1 second..."
-                        )
-                        await asyncio.sleep(1)
-                self._receiver = self._sub_conn.pubsub()
-                if not self._receiver.subscribed:
-                    await self._receiver.subscribe(*self._subscribed_to)
-                    self._notify_consumers(self.channel_layer.on_reconnect)
-                self._receive_task = asyncio.ensure_future(self._do_receiving())
-            return self._sub_conn
+                self._receive_task = None
+            if self._redis is not None:
+                await self._redis.close()
+                self._redis = None
+                self._pubsub = None
+            self._subscribed_to = set()
 
     async def _do_receiving(self):
         while True:
             try:
-                async with async_timeout.timeout(1):
-                    message = await self._receiver.get_message(
-                        ignore_subscribe_messages=True
+                if self._pubsub and self._pubsub.subscribed:
+                    message = await self._pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=0.1
                     )
-                    if message is not None:
-                        name = message["channel"]
-                        data = message["data"]
-                        if isinstance(name, bytes):
-                            # Reversing what happens here:
-                            #   https://github.com/aio-libs/aioredis-py/blob/8a207609b7f8a33e74c7c8130d97186e78cc0052/aioredis/util.py#L17
-                            name = name.decode()
-                        if name in self.channel_layer.channels:
-                            self.channel_layer.channels[name].put_nowait(data)
-                        elif name in self.channel_layer.groups:
-                            for channel_name in self.channel_layer.groups[name]:
-                                if channel_name in self.channel_layer.channels:
-                                    self.channel_layer.channels[
-                                        channel_name
-                                    ].put_nowait(data)
-                    await asyncio.sleep(0.01)
-            except asyncio.TimeoutError:
-                pass
+                    self._receive_message(message)
+                else:
+                    await asyncio.sleep(0.1)
+            except (
+                asyncio.CancelledError,
+                asyncio.TimeoutError,
+                GeneratorExit,
+            ):
+                raise
+            except BaseException:
+                logger.exception("Unexpected exception in receive task")
+                await asyncio.sleep(1)
 
-    def _notify_consumers(self, mtype):
-        if mtype is not None:
-            for channel in self.channel_layer.channels.values():
-                channel.put_nowait(
-                    self.channel_layer.channel_layer.serialize({"type": mtype})
-                )
+    def _receive_message(self, message):
+        if message is not None:
+            name = message["channel"]
+            data = message["data"]
+            if isinstance(name, bytes):
+                name = name.decode()
+            if name in self.channel_layer.channels:
+                self.channel_layer.channels[name].put_nowait(data)
+            elif name in self.channel_layer.groups:
+                for channel_name in self.channel_layer.groups[name]:
+                    if channel_name in self.channel_layer.channels:
+                        self.channel_layer.channels[channel_name].put_nowait(data)
 
-    async def _ensure_redis(self):
+    def _ensure_redis(self):
         if self._redis is None:
             if self.master_name is None:
                 pool = aioredis.ConnectionPool.from_url(self.host["address"])
@@ -425,40 +352,8 @@ class RedisSingleShardConnection:
                     ),
                 )
             self._redis = aioredis.Redis(connection_pool=pool)
+            self._pubsub = self._redis.pubsub()
 
-    async def _get_redis_conn(self):
-        await self._ensure_redis()
-        return self._redis
-
-    async def _put_redis_conn(self, conn):
-        if conn:
-            await conn.close()
-
-    async def _do_keepalive(self):
-        """
-        This task's simple job is just to call `self._get_sub_conn()` periodically.
-
-        Why? Well, calling `self._get_sub_conn()` has the nice side-effect that if
-        that connection has died (because Redis was restarted, or there was a networking
-        hiccup, for example), then calling `self._get_sub_conn()` will reconnect and
-        restore our old subscriptions. Thus, we want to do this on a predictable schedule.
-        This is kinda a sub-optimal way to achieve this, but I can't find a way in aioredis
-        to get a notification when the connection dies. I find this (sub-optimal) method
-        of checking the connection state works fine for my app; if Redis restarts, we reconnect
-        and resubscribe *quickly enough*; I mean, Redis restarting is already bad because it
-        will cause messages to get lost, and this periodic check at least minimizes the
-        damage *enough*.
-
-        Note you wouldn't need this if you were *sure* that there would be a lot of subscribe/
-        unsubscribe events on your site, because such events each call `self._get_sub_conn()`.
-        Thus, on a site with heavy traffic this task may not be necessary, but also maybe it is.
-        Why? Well, in a heavy traffic site you probably have more than one Django server replicas,
-        so it might be the case that one of your replicas is under-utilized and this periodic
-        connection check will be beneficial in the same way as it is for a low-traffic site.
-        """
-        while True:
-            await asyncio.sleep(1)
-            try:
-                await self._get_sub_conn()
-            except Exception:
-                logger.exception("Unexpected exception in keepalive task:")
+    def _ensure_receiver(self):
+        if self._receive_task is None:
+            self._receive_task = asyncio.ensure_future(self._do_receiving())
