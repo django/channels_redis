@@ -1,4 +1,4 @@
-4.0.0b1 (2022-06-28)
+4.0.0b2 (2022-09-08)
 --------------------
 
 This is a beta release to allow testing with the new redis-py dependency.
