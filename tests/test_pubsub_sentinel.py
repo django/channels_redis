@@ -8,7 +8,14 @@ from asgiref.sync import async_to_sync
 from channels_redis.pubsub import RedisPubSubChannelLayer
 
 SENTINEL_MASTER = "sentinel"
-TEST_HOSTS = [{"sentinels": [("localhost", 26379)], "master_name": SENTINEL_MASTER}]
+SENTINEL_KWARGS = {"password": "channels_redis"}
+TEST_HOSTS = [
+    {
+        "sentinels": [("localhost", 26379)],
+        "master_name": SENTINEL_MASTER,
+        "sentinel_kwargs": SENTINEL_KWARGS,
+    }
+]
 
 
 @pytest.fixture()
