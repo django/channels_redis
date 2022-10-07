@@ -302,7 +302,10 @@ class RedisSingleShardConnection:
                     pass
                 self._receive_task = None
             if self._redis is not None:
-                await self._redis.close()
+                # The pool was created just for this client, so make sure it is closed,
+                # otherwise it will schedule the connection to be closed inside the
+                # __del__ method, which doesn't have a loop running anymore.
+                await self._redis.close(close_connection_pool=True)
                 self._redis = None
                 self._pubsub = None
             self._subscribed_to = set()

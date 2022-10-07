@@ -32,6 +32,21 @@ async def other_channel_layer():
     await channel_layer.flush()
 
 
+def test_layer_close():
+    """
+    If the channel layer does not close properly there will be a "Task was destroyed but it is pending!" warning at
+    process exit.
+    """
+
+    async def do_something_with_layer():
+        channel_layer = RedisPubSubChannelLayer(hosts=TEST_HOSTS)
+        await channel_layer.send(
+            "TestChannel", {"type": "test.message", "text": "Ahoy-hoy!"}
+        )
+
+    async_to_sync(do_something_with_layer)()
+
+
 @pytest.mark.asyncio
 async def test_send_receive(channel_layer):
     """
