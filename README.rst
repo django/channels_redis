@@ -65,7 +65,7 @@ Possible options for ``CONFIG`` are listed below.
 ``hosts``
 ~~~~~~~~~
 
-The server(s) to connect to, as either URIs or dicts conforming to `redis Connection <https://redis-py.readthedocs.io/en/v4.3.3/connections.html#redis.connection.Connection>`_.
+The server(s) to connect to as redis URIs.
 Defaults to ``redis://localhost:6379``. Pass multiple hosts to enable sharding,
 but note that changing the host list will lose some sharded data.
 
