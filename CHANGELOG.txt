@@ -7,8 +7,9 @@ Version 4.0.0 migrates the underlying Redis library from ``aioredis`` to ``redis
 Version 4.0.0 should be compatible with existing Channels 3 projects, as well as Channels 4
 projects.
 
-* Migrated from ``aioredis`` to ``redis-py``. If you are using dicts in the `hosts` configuration
-  parameter these should now conform to redis Connection <https://redis-py.readthedocs.io/en/v4.3.3/connections.html#redis.connection.Connection>`_.
+* Migrated from ``aioredis`` to ``redis-py``. Specifying hosts as tuples is no longer supported.
+  If hosts are specified as dicts, only the ``address`` key will be taken into account, i.e.
+  a `password`` must be specified inline in the address.
 
 * Added support for passing kwargs to sentinel connections.
 
