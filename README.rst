@@ -42,7 +42,7 @@ Set up the channel layer in your Django settings file like so:
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
-                "hosts": [("localhost", 6379)],
+                "hosts": ["redis://localhost:6379"],
             },
         },
     }
@@ -55,7 +55,7 @@ Or, you can use the alternate implementation which uses Redis Pub/Sub:
         "default": {
             "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
             "CONFIG": {
-                "hosts": [("localhost", 6379)],
+                "hosts": ["redis://localhost:6379"],
             },
         },
     }
@@ -65,7 +65,7 @@ Possible options for ``CONFIG`` are listed below.
 ``hosts``
 ~~~~~~~~~
 
-The server(s) to connect to, as either URIs, ``(host, port)`` tuples, or dicts conforming to `redis Connection <https://redis-py.readthedocs.io/en/v4.3.3/connections.html#redis.connection.Connection>`_.
+The server(s) to connect to, as either URIs or dicts conforming to `redis Connection <https://redis-py.readthedocs.io/en/v4.3.3/connections.html#redis.connection.Connection>`_.
 Defaults to ``redis://localhost:6379``. Pass multiple hosts to enable sharding,
 but note that changing the host list will lose some sharded data.
 
@@ -140,7 +140,7 @@ to 10, and all ``websocket.send!`` channels to 20:
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
-                "hosts": [("localhost", 6379)],
+                "hosts": ["redis:/localhost:6379"],
                 "channel_capacity": {
                     "http.request": 200,
                     "http.response!*": 10,
