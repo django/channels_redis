@@ -652,3 +652,19 @@ def test_deserialize():
 
     assert isinstance(deserialized, dict)
     assert deserialized == {"a": True, "b": None, "c": {"d": []}}
+
+
+def test_create_pool_from_url():
+    """
+    Test allowing passing additional parameters to the connection via host
+    configuration.
+    """
+    hosts = [
+        {
+            "address": "rediss://localhost:6379/0",
+            "ssl_cert_reqs": None,
+        }
+    ]
+    channel_layer = RedisChannelLayer(hosts=hosts)
+    pool = channel_layer.create_pool(0)
+    assert "ssl_cert_reqs" in pool.connection_kwargs

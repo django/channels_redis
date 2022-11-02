@@ -65,13 +65,27 @@ Possible options for ``CONFIG`` are listed below.
 ``hosts``
 ~~~~~~~~~
 
-The server(s) to connect to, as either URIs, ``(host, port)`` tuples, or dicts conforming to `redis Connection <https://redis-py.readthedocs.io/en/v4.3.3/connections.html#redis.connection.Connection>`_.
+The server(s) to connect to.
+Can be either:
+
+- URIs with extra connection kwargs like
+
+.. code-block:: python
+
+    {
+        "address": "redis://localhost:6379",
+        "ssl_cert_reqs": None,
+    }
+
+
+- or ``(host, port)`` tuples
+- or dicts conforming to `redis Connection <https://redis-py.readthedocs.io/en/v4.3.3/connections.html#redis.connection.Connection>`_.
 Defaults to ``redis://localhost:6379``. Pass multiple hosts to enable sharding,
 but note that changing the host list will lose some sharded data.
 
 Sentinel connections require dicts conforming to:
 
-.. code-block::
+.. code-block:: python
 
     {
         "sentinels": [
