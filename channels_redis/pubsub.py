@@ -151,6 +151,16 @@ class RedisPubSubLoopLayer:
         await self._subscribe_to_channel(channel)
         return channel
 
+    async def clean_channel(self, channel):
+        if channel in self.channels:
+            del self.channels[channel]
+            try:
+                shard = self._get_shard(channel)
+                await shard.unsubscribe(channel)
+            except BaseException:
+                logger.exception("Unexpected exception while cleaning-up channel:")
+                # We don't re-raise here because we want the CancelledError to be the one re-raised.
+
     async def receive(self, channel):
         """
         Receive the first message that arrives on the channel.
@@ -172,14 +182,7 @@ class RedisPubSubLoopLayer:
             # be named `delete_channel()`. If that were the case, we would do the
             # following cleanup from that new `delete_channel()` method, but, since
             # that's not how Django Channels works (yet), we do the cleanup below:
-            if channel in self.channels:
-                del self.channels[channel]
-                try:
-                    shard = self._get_shard(channel)
-                    await shard.unsubscribe(channel)
-                except BaseException:
-                    logger.exception("Unexpected exception while cleaning-up channel:")
-                    # We don't re-raise here because we want the CancelledError to be the one re-raised.
+            await self.clean_channel(channel)
             raise
 
         return self.channel_layer.deserialize(message)
