@@ -11,7 +11,7 @@ import uuid
 
 import msgpack
 from redis import asyncio as aioredis
-
+from copy import deepcopy
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
 
@@ -132,13 +132,14 @@ class RedisChannelLayer(BaseChannelLayer):
         if "address" in host:
             return aioredis.ConnectionPool.from_url(host["address"])
         elif "master_name" in host:
-            sentinels = host.pop("sentinels")
-            master_name = host.pop("master_name")
-            sentinel_kwargs = host.pop("sentinel_kwargs", None)
+            host_kwargs = deepcopy(host)
+            sentinels = host_kwargs.pop("sentinels")
+            master_name = host_kwargs.pop("master_name")
+            sentinel_kwargs = host_kwargs.pop("sentinel_kwargs", None)
             return aioredis.sentinel.SentinelConnectionPool(
                 master_name,
                 aioredis.sentinel.Sentinel(sentinels, sentinel_kwargs=sentinel_kwargs),
-                **host
+                **host_kwargs
             )
         else:
             return aioredis.ConnectionPool(**host)
