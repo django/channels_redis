@@ -346,7 +346,8 @@ class RedisSingleShardConnection:
     def _ensure_redis(self):
         if self._redis is None:
             if self.master_name is None:
-                pool = aioredis.ConnectionPool.from_url(self.host["address"])
+                address = self.host["address"]
+                pool = aioredis.ConnectionPool.from_url(address, **self.host)
             else:
                 # aioredis default timeout is way too low
                 pool = aioredis.sentinel.SentinelConnectionPool(
