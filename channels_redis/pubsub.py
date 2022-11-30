@@ -223,12 +223,14 @@ class RedisPubSubLoopLayer:
 
     async def group_discard(self, group, channel):
         """
-        Removes the channel from a group.
+        Removes the channel from a group if it is in the group;
+        does nothing otherwise (does not error)
         """
         group_channel = self._get_group_channel_name(group)
-        assert group_channel in self.groups
-        group_channels = self.groups[group_channel]
-        assert channel in group_channels
+        group_channels = self.groups.get(group_channel, set())
+        if channel not in group_channels:
+            return
+
         group_channels.remove(channel)
         if len(group_channels) == 0:
             del self.groups[group_channel]
