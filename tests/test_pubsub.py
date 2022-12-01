@@ -252,3 +252,10 @@ async def test_auto_reconnect(channel_layer):
     with pytest.raises(asyncio.TimeoutError):
         async with async_timeout.timeout(1):
             await channel_layer.receive(channel_name2)
+
+
+@pytest.mark.asyncio
+async def test_discard_before_add(channel_layer):
+    channel_name = await channel_layer.new_channel(prefix="test-channel")
+    # Make sure that we can remove a group before it was ever added without crashing.
+    await channel_layer.group_discard("test-group", channel_name)
