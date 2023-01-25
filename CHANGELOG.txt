@@ -4,10 +4,12 @@
 Version 4.0.0 migrates the underlying Redis library from ``aioredis`` to ``redis-py``.
 (``aioredis`` was retired and moved into ``redis-py``, which will host the ongoing development.)
 
-The API is unchanged. Version 4.0.0 should be compatible with existing Channels 3 projects, as well as Channels 4
+Version 4.0.0 should be compatible with existing Channels 3 projects, as well as Channels 4
 projects.
 
-* Migrated from ``aioredis`` to ``redis-py``.
+* Migrated from ``aioredis`` to ``redis-py``. Specifying hosts as tuples is no longer supported.
+  If hosts are specified as dicts, only the ``address`` key will be taken into account, i.e.
+  a `password`` must be specified inline in the address.
 
 * Added support for passing kwargs to sentinel connections.
 
