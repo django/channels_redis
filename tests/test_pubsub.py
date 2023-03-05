@@ -19,11 +19,8 @@ async def channel_layer():
     """
     channel_layer = RedisPubSubChannelLayer(hosts=TEST_HOSTS)
     yield channel_layer
-    try:
-        async with async_timeout.timeout(1):
-            await channel_layer.flush()
-    except asyncio.TimeoutError:
-        pytest.fail("failed to flush within 1 second")
+    async with async_timeout.timeout(1):
+        await channel_layer.flush()
 
 
 @pytest.fixture()
