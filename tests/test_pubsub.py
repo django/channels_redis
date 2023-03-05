@@ -23,7 +23,7 @@ async def channel_layer():
         async with async_timeout.timeout(1):
             await channel_layer.flush()
     except asyncio.TimeoutError:
-        pytest.fail("failed to flush within 1 seconds")
+        pytest.fail("failed to flush within 1 second")
 
 
 @pytest.fixture()
