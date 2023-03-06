@@ -15,7 +15,7 @@ from redis import asyncio as aioredis
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
 
-from .utils import _consistent_hash, _wrap_close
+from .utils import _consistent_hash, _wrap_close, create_pool, decode_hosts
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +118,7 @@ class RedisChannelLayer(BaseChannelLayer):
         self.prefix = prefix
         assert isinstance(self.prefix, str), "Prefix must be unicode"
         # Configure the host objects
-        self.hosts = self.decode_hosts(hosts)
+        self.hosts = decode_hosts(hosts)
         self.ring_size = len(self.hosts)
         # Cached redis connection pools and the event loop they are from
         self._layers = {}
@@ -146,46 +146,7 @@ class RedisChannelLayer(BaseChannelLayer):
         self.receive_clean_locks = ChannelLock()
 
     def create_pool(self, index):
-        host = self.hosts[index]
-
-        if "address" in host:
-            return aioredis.ConnectionPool.from_url(host["address"])
-        elif "master_name" in host:
-            sentinels = host.pop("sentinels")
-            master_name = host.pop("master_name")
-            sentinel_kwargs = host.pop("sentinel_kwargs", None)
-            return aioredis.sentinel.SentinelConnectionPool(
-                master_name,
-                aioredis.sentinel.Sentinel(sentinels, sentinel_kwargs=sentinel_kwargs),
-                **host,
-            )
-        else:
-            return aioredis.ConnectionPool(**host)
-
-    def decode_hosts(self, hosts):
-        """
-        Takes the value of the "hosts" argument passed to the class and returns
-        a list of kwargs to use for the Redis connection constructor.
-        """
-        # If no hosts were provided, return a default value
-        if not hosts:
-            return [{"address": "redis://localhost:6379"}]
-        # If they provided just a string, scold them.
-        if isinstance(hosts, (str, bytes)):
-            raise ValueError(
-                "You must pass a list of Redis hosts, even if there is only one."
-            )
-
-        # Decode each hosts entry into a kwargs dict
-        result = []
-        for entry in hosts:
-            if isinstance(entry, dict):
-                result.append(entry)
-            elif isinstance(entry, tuple):
-                result.append({"host": entry[0], "port": entry[1]})
-            else:
-                result.append({"address": entry})
-        return result
+        return create_pool(self.hosts[index])
 
     def _setup_encryption(self, symmetric_encryption_keys):
         # See if we can do encryption if they asked

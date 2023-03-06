@@ -6,7 +6,7 @@ import uuid
 import msgpack
 from redis import asyncio as aioredis
 
-from .utils import _consistent_hash, _wrap_close
+from .utils import _consistent_hash, _wrap_close, create_pool, decode_hosts
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +81,6 @@ class RedisPubSubLoopLayer:
         channel_layer=None,
         **kwargs,
     ):
-        if hosts is None:
-            hosts = ["redis://localhost:6379"]
-        assert (
-            isinstance(hosts, list) and len(hosts) > 0
-        ), "`hosts` must be a list with at least one Redis server"
-
         self.prefix = prefix
 
         self.on_disconnect = on_disconnect
@@ -102,7 +96,9 @@ class RedisPubSubLoopLayer:
         self.groups = {}
 
         # For each host, we create a `RedisSingleShardConnection` to manage the connection to that host.
-        self._shards = [RedisSingleShardConnection(host, self) for host in hosts]
+        self._shards = [
+            RedisSingleShardConnection(host, self) for host in decode_hosts(hosts)
+        ]
 
     def _get_shard(self, channel_or_group_name):
         """
@@ -247,9 +243,7 @@ class RedisPubSubLoopLayer:
 
 class RedisSingleShardConnection:
     def __init__(self, host, channel_layer):
-        self.host = host.copy() if type(host) is dict else {"address": host}
-        self.master_name = self.host.pop("master_name", None)
-        self.sentinel_kwargs = self.host.pop("sentinel_kwargs", None)
+        self.host = host
         self.channel_layer = channel_layer
         self._subscribed_to = set()
         self._lock = asyncio.Lock()
@@ -331,18 +325,7 @@ class RedisSingleShardConnection:
 
     def _ensure_redis(self):
         if self._redis is None:
-            if self.master_name is None:
-                pool = aioredis.ConnectionPool.from_url(self.host["address"])
-            else:
-                # aioredis default timeout is way too low
-                pool = aioredis.sentinel.SentinelConnectionPool(
-                    self.master_name,
-                    aioredis.sentinel.Sentinel(
-                        self.host["sentinels"],
-                        socket_timeout=2,
-                        sentinel_kwargs=self.sentinel_kwargs,
-                    ),
-                )
+            pool = create_pool(self.host)
             self._redis = aioredis.Redis(connection_pool=pool)
             self._pubsub = self._redis.pubsub()
 
