@@ -1,3 +1,10 @@
+UNRELEASED
+----------
+
+* Pinned redis-py version to 4.3.5 in order to avoid difficult to diagnose
+  issues occurring with redis-py 4.4+ (to 4.5.2 currently).
+
+
 4.0.0 (2022-10-07)
 ------------------
 
