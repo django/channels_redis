@@ -30,7 +30,7 @@ setup(
     include_package_data=True,
     python_requires=">=3.7",
     install_requires=[
-        "redis>=4.2.0",
+        "redis==4.3.5",
         "msgpack~=1.0",
         "asgiref>=3.2.10,<4",
         "channels",
