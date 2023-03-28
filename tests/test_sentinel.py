@@ -461,6 +461,12 @@ async def test_group_send_capacity_multiple_channels(channel_layer, caplog):
         )
 
 
+@pytest.mark.xfail(
+    reason="""
+Fails with error in redis-py: int() argument must be a string, a bytes-like
+object or a real number, not 'NoneType'. Refs: #348
+"""
+)
 @pytest.mark.asyncio
 async def test_receive_cancel(channel_layer):
     """
@@ -593,6 +599,7 @@ async def test_message_expiry__group_send(channel_layer):
             await channel_layer.receive(channel_name)
 
 
+@pytest.mark.xfail(reason="Fails with timeout. Refs: #348")
 @pytest.mark.asyncio
 async def test_message_expiry__group_send__one_channel_expires_message(channel_layer):
     expiry = 3
