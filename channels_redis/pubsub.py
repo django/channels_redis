@@ -1,30 +1,14 @@
 import asyncio
 import functools
 import logging
-import types
 import uuid
 
 import msgpack
 from redis import asyncio as aioredis
 
-from .utils import _consistent_hash
+from .utils import _consistent_hash, _wrap_close
 
 logger = logging.getLogger(__name__)
-
-
-def _wrap_close(proxy, loop):
-    original_impl = loop.close
-
-    def _wrapper(self, *args, **kwargs):
-        if loop in proxy._layers:
-            layer = proxy._layers[loop]
-            del proxy._layers[loop]
-            loop.run_until_complete(layer.flush())
-
-        self.close = original_impl
-        return self.close(*args, **kwargs)
-
-    loop.close = types.MethodType(_wrapper, loop)
 
 
 async def _async_proxy(obj, name, *args, **kwargs):
