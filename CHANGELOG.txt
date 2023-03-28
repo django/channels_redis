@@ -1,9 +1,22 @@
-UNRELEASED
-----------
+4.1.0 (2023-03-28)
+------------------
 
-* Pinned redis-py version to 4.3.5 in order to avoid difficult to diagnose
-  issues occurring with redis-py 4.4+ (to 4.5.2 currently).
+* Adjusted the way Redis connections are handled:
 
+  * Connection handling is now shared between the two, core and pub-sub, layers.
+
+  * Both layers now ensure that connections are closed when an event loop shuts down.
+
+    In particular, redis-py 4.x requires that connections are manually closed.
+    In 4.0 that wasn't done by the core layer, which led to warnings for people
+    using `async_to_sync()`, without closing connections when updating from
+    3.x.
+
+* Updated the minimum redis-py version to 4.5.3 because of a security release there.
+  Note that this is not a security issue in channels-redis: installing an
+  earlier version will still use the latest redis-py, but by bumping the
+  dependency we make sure you'll get redis-py too, when you install the update
+  here.
 
 4.0.0 (2022-10-07)
 ------------------
