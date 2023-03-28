@@ -13,6 +13,7 @@ test_requires = crypto_requires + [
     "pytest",
     "pytest-asyncio",
     "async-timeout",
+    "pytest-timeout",
 ]
 
 
