@@ -90,7 +90,7 @@ This should be slightly faster than a loopback TCP connection.
 ``prefix``
 ~~~~~~~~~~
 
-Prefix to add to all Redis keys. Defaults to ``asgi:``. If you're running
+Prefix to add to all Redis keys. Defaults to ``asgi``. If you're running
 two or more entirely separate channel layers through the same Redis instance,
 make sure they have different prefixes. All servers talking to the same layer
 should have the same prefix, though.
