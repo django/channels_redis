@@ -19,8 +19,7 @@ jobs:
           - 3.8
           - 3.9
           - "3.10"
-          # Refs #348 - skip Python 3.11 until redis-py >= 4.5.4 (or Python 3.11.3)
-          # - "3.11"
+          - "3.11"
     services:
       redis:
         image: redis
