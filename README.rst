@@ -158,9 +158,9 @@ argument; channels will then be matched in the order the dict provides them.
 
 Pass this to enable the optional symmetric encryption mode of the backend. To
 use it, make sure you have the ``cryptography`` package installed, or specify
-the ``cryptography`` extra when you install ``channels_redis``::
+the ``cryptography`` extra when you install ``channels-redis``::
 
-    pip install channels_redis[cryptography]
+    pip install channels-redis[cryptography]
 
 ``symmetric_encryption_keys`` should be a list of strings, with each string
 being an encryption key. The first key is always used for encryption; all are
@@ -222,7 +222,7 @@ And then in your channels consumer, you can implement the handler:
 Dependencies
 ------------
 
-Redis server >= 5.0 is required for `channels_redis`. Python 3.7 or higher is required.
+Redis server >= 5.0 is required for `channels-redis`. Python 3.7 or higher is required.
 
 
 Used commands
