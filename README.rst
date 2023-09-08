@@ -73,13 +73,15 @@ SSL connections that are self-signed (ex: Heroku):
 
 .. code-block:: python
 
-{
-    "hosts":[
-        "address": "rediss://user@host:port",  // "REDIS_TLS_URL"
-        "ssl_cert_reqs": None
-    ]
-}
-
+    "default": {
+        "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
+        "CONFIG": {    
+            "hosts":[{
+                "address": "rediss://user@host:port",  # "REDIS_TLS_URL"
+                "ssl_cert_reqs": None,
+            }]
+        }
+    }
 
 Sentinel connections require dicts conforming to:
 
