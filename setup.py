@@ -29,7 +29,7 @@ setup(
     zip_safe=False,
     packages=find_packages(exclude=["tests"]),
     include_package_data=True,
-    python_requires=">=3.7",
+    python_requires=">=3.8",
     install_requires=[
         "redis>=4.5.3",
         "msgpack~=1.0",
