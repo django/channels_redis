@@ -6,7 +6,13 @@ import uuid
 import msgpack
 from redis import asyncio as aioredis
 
-from .utils import _consistent_hash, _wrap_close, create_pool, decode_hosts
+from .utils import (
+    _close_redis,
+    _consistent_hash,
+    _wrap_close,
+    create_pool,
+    decode_hosts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +291,7 @@ class RedisSingleShardConnection:
                 # The pool was created just for this client, so make sure it is closed,
                 # otherwise it will schedule the connection to be closed inside the
                 # __del__ method, which doesn't have a loop running anymore.
-                await self._redis.close(close_connection_pool=True)
+                await _close_redis(self._redis)
                 self._redis = None
                 self._pubsub = None
             self._subscribed_to = set()

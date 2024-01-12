@@ -15,7 +15,13 @@ from redis import asyncio as aioredis
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
 
-from .utils import _consistent_hash, _wrap_close, create_pool, decode_hosts
+from .utils import (
+    _close_redis,
+    _consistent_hash,
+    _wrap_close,
+    create_pool,
+    decode_hosts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +92,7 @@ class RedisLoopLayer:
         async with self._lock:
             for index in list(self._connections):
                 connection = self._connections.pop(index)
-                await connection.close(close_connection_pool=True)
+                await _close_redis(connection)
 
 
 class RedisChannelLayer(BaseChannelLayer):

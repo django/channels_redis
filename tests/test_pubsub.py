@@ -8,6 +8,7 @@ import pytest
 
 from asgiref.sync import async_to_sync
 from channels_redis.pubsub import RedisPubSubChannelLayer
+from channels_redis.utils import _close_redis
 
 TEST_HOSTS = ["redis://localhost:6379"]
 
@@ -239,10 +240,10 @@ async def test_auto_reconnect(channel_layer):
     channel_name3 = await channel_layer.new_channel(prefix="test-gr-chan-3")
     await channel_layer.group_add("test-group", channel_name1)
     await channel_layer.group_add("test-group", channel_name2)
-    await channel_layer._shards[0]._redis.close(close_connection_pool=True)
+    await _close_redis(channel_layer._shards[0]._redis)
     await channel_layer.group_add("test-group", channel_name3)
     await channel_layer.group_discard("test-group", channel_name2)
-    await channel_layer._shards[0]._redis.close(close_connection_pool=True)
+    await _close_redis(channel_layer._shards[0]._redis)
     await asyncio.sleep(1)
     await channel_layer.group_send("test-group", {"type": "message.1"})
     # Make sure we get the message on the two channels that were in

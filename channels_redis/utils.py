@@ -35,6 +35,16 @@ def _wrap_close(proxy, loop):
     loop.close = types.MethodType(_wrapper, loop)
 
 
+async def _close_redis(connection):
+    """
+    Handle compatibility with redis-py 4.x and 5.x close methods
+    """
+    try:
+        await connection.aclose(close_connection_pool=True)
+    except AttributeError:
+        await connection.close(close_connection_pool=True)
+
+
 def decode_hosts(hosts):
     """
     Takes the value of the "hosts" argument and returns
