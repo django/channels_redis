@@ -1,3 +1,16 @@
+4.2.0 (2024-01-12)
+------------------
+
+* Dropped support for end-of-life Python 3.7.
+
+* Added support for Python 3.11 and 3.12.
+
+* Upped the minimum version of redis-py to 4.6.
+
+* Added CI testing against redis-py versions 4.6, 5, and the development branch.
+
+* Added CI testing against Channels versions 3, 4, and the development branch.
+
 4.1.0 (2023-03-28)
 ------------------
 

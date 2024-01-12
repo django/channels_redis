@@ -19,6 +19,10 @@ There are two available implementations:
 
 Both layers support a single-server and sharded configurations.
 
+`channels_redis` is tested against Python 3.8 to 3.12, `redis-py` versions 4.6,
+5.0, and the development branch, and Channels versions 3, 4 and the development
+branch there.
+
 Installation
 ------------
 
@@ -75,7 +79,7 @@ SSL connections that are self-signed (ex: Heroku):
 
     "default": {
         "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
-        "CONFIG": {    
+        "CONFIG": {
             "hosts":[{
                 "address": "rediss://user@host:port",  # "REDIS_TLS_URL"
                 "ssl_cert_reqs": None,
