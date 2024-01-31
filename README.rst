@@ -81,7 +81,7 @@ SSL connections that are self-signed (ex: Heroku):
         "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
         "CONFIG": {
             "hosts":[{
-                "address": "rediss://user@host:port",  # "REDIS_TLS_URL"
+                "address": "redis://user@host:port",  # "REDIS_TLS_URL"
                 "ssl_cert_reqs": None,
             }]
         }
@@ -146,7 +146,7 @@ Per-channel capacity configuration. This lets you tweak the channel capacity
 based on the channel name, and supports both globbing and regular expressions.
 
 It should be a dict mapping channel name pattern to desired capacity; if the
-dict key is a string, it's intepreted as a glob, while if it's a compiled
+dict key is a string, it's interpreted as a glob, while if it's a compiled
 ``re`` object, it's treated as a regular expression.
 
 This example sets ``http.request`` to 200, all ``http.response!`` channels
@@ -175,7 +175,7 @@ argument; channels will then be matched in the order the dict provides them.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Pass this to enable the optional symmetric encryption mode of the backend. To
-use it, make sure you have the ``cryptography`` package installed, or specify
+use it, make sure you have the ``cryptography`` package installed or specify
 the ``cryptography`` extra when you install ``channels-redis``::
 
     pip install channels-redis[cryptography]
