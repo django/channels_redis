@@ -167,7 +167,7 @@ class RedisPubSubLoopLayer:
             # We assume here that the reason we are cancelled is because the consumer
             # is exiting, therefore we need to cleanup by unsubscribe below. Indeed,
             # currently the way that Django Channels works, this is a safe assumption.
-            # In the future, Dajngo Channels could change to call a *new* method that
+            # In the future, Django Channels could change to call a *new* method that
             # would serve as the antithesis of `new_channel()`; this new method might
             # be named `delete_channel()`. If that were the case, we would do the
             # following cleanup from that new `delete_channel()` method, but, since
