@@ -76,7 +76,7 @@ def create_pool(host):
     Takes the value of the "host" argument and returns a suited connection pool to
     the corresponding redis instance.
     """
-    # avoid side-effects from modifying host
+    # Avoid side-effects from modifying host
     host = host.copy()
     if "address" in host:
         address = host.pop("address")
