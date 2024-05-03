@@ -28,7 +28,7 @@ Installation
 
 .. code-block::
 
-    pip install channels-redis
+    pip install channels_redis
 
 **Note:** Prior versions of this package were called ``asgi_redis`` and are
 still available under PyPI as that name if you need them for Channels 1.x projects.
