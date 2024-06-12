@@ -151,6 +151,12 @@ class RedisChannelLayer(BaseChannelLayer):
         # a message back into the main queue before its cleanup has completed
         self.receive_clean_locks = ChannelLock()
 
+    def _packing_kwargs(message):
+        """
+        kwargs passed to msgpack.packb
+        """
+        return {'use_bin_type': True}
+
     def create_pool(self, index):
         return create_pool(self.hosts[index])
 
@@ -656,7 +662,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Serializes message to a byte string.
         """
-        value = msgpack.packb(message, use_bin_type=True)
+        value = msgpack.packb(message, **self._packing_kwargs(message))
         if self.crypter:
             value = self.crypter.encrypt(value)
 
