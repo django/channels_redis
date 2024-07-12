@@ -81,7 +81,7 @@ SSL connections that are self-signed (ex: Heroku):
         "BACKEND": "channels_redis.pubsub.RedisPubSubChannelLayer",
         "CONFIG": {
             "hosts":[{
-                "address": "rediss://user@host:port",  # "REDIS_TLS_URL"
+                "address": "redis://user@host:port",  # "REDIS_TLS_URL"
                 "ssl_cert_reqs": None,
             }]
         }
