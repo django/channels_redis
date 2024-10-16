@@ -242,6 +242,7 @@ And then in your channels consumer, you can implement the handler:
 
 ``serializer_format``
 ~~~~~~~~~~~~~~~~~~~~~~
+
 By default every message sent to redis is encoded using `msgpack <https://msgpack.org/>`_ (_currently ``msgpack`` is a mandatory dependency of this package, it may become optional in a future release_).
 It is also possible to switch to `JSON <http://www.json.org/>`_:
 
@@ -258,7 +259,7 @@ It is also possible to switch to `JSON <http://www.json.org/>`_:
     }
 
 
-Custom serializer can be defined by:
+Custom serializers can be defined by:
 
 - extending ``channels_redis.serializers.BaseMessageSerializer``, implementing ``as_bytes `` and ``from_bytes`` methods
 - using any class which accepts generic keyword arguments and provides ``serialize``/``deserialize`` methods
@@ -277,10 +278,10 @@ Then it may be registered (or can be overriden) by using ``channels_redis.serial
 
     registry.register_serializer('myformat', MyFormatSerializer)
 
-**NOTE**: the registry allows to override the serializer class used for a specific format without any particular check nor constraint, thus it is recommended to pay attention with order-of-imports when using third-party serializers which may override a built-in format.
+**NOTE**: the registry allows you to override the serializer class used for a specific format without any check nor constraint. Thus it is recommended that to pay particular attention to the order-of-imports when using third-party serializers which may override a built-in format.
 
 
-Serializers are also responsible for encryption *symmetric_encryption_keys*. When extending  ``channels_redis.serializers.BaseMessageSerializer`` encryption is already configured in the base class, unless you override ``serialize``/``deserialize`` methods: in this case you should call ``self.crypter.encrypt`` in serialization and ``self.crypter.decrypt`` in deserialization process. When using full custom serializer expect an optional sequence of keys to be passed via ``symmetric_encryption_keys``.
+Serializers are also responsible for encryption using *symmetric_encryption_keys*. When extending  ``channels_redis.serializers.BaseMessageSerializer`` encryption is already configured in the base class, unless you override the ``serialize``/``deserialize`` methods: in this case you should call ``self.crypter.encrypt`` in serialization and ``self.crypter.decrypt`` in deserialization process. When using a fully custom serializer, expect an optional sequence of keys to be passed via ``symmetric_encryption_keys``.
 
 
 Dependencies
