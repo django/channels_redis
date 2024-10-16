@@ -1,20 +1,17 @@
 import asyncio
-import base64
 import collections
 import functools
-import hashlib
 import itertools
 import logging
-import random
 import time
 import uuid
 
-import msgpack
 from redis import asyncio as aioredis
 
 from channels.exceptions import ChannelFull
 from channels.layers import BaseChannelLayer
 
+from .serializers import registry
 from .utils import (
     _close_redis,
     _consistent_hash,
@@ -115,6 +112,8 @@ class RedisChannelLayer(BaseChannelLayer):
         capacity=100,
         channel_capacity=None,
         symmetric_encryption_keys=None,
+        random_prefix_length=12,
+        serializer_format="msgpack",
     ):
         # Store basic information
         self.expiry = expiry
@@ -126,6 +125,14 @@ class RedisChannelLayer(BaseChannelLayer):
         # Configure the host objects
         self.hosts = decode_hosts(hosts)
         self.ring_size = len(self.hosts)
+        # serialization
+        self._serializer = registry.get_serializer(
+            serializer_format,
+            # As we use an sorted set to expire messages we need to guarantee uniqueness, with 12 bytes.
+            random_prefix_length=random_prefix_length,
+            expiry=self.expiry,
+            symmetric_encryption_keys=symmetric_encryption_keys,
+        )
         # Cached redis connection pools and the event loop they are from
         self._layers = {}
         # Normal channels choose a host index by cycling through the available hosts
@@ -133,8 +140,6 @@ class RedisChannelLayer(BaseChannelLayer):
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
         # Decide on a unique client prefix to use in ! sections
         self.client_prefix = uuid.uuid4().hex
-        # Set up any encryption objects
-        self._setup_encryption(symmetric_encryption_keys)
         # Number of coroutines trying to receive right now
         self.receive_count = 0
         # The receive lock
@@ -153,24 +158,6 @@ class RedisChannelLayer(BaseChannelLayer):
 
     def create_pool(self, index):
         return create_pool(self.hosts[index])
-
-    def _setup_encryption(self, symmetric_encryption_keys):
-        # See if we can do encryption if they asked
-        if symmetric_encryption_keys:
-            if isinstance(symmetric_encryption_keys, (str, bytes)):
-                raise ValueError(
-                    "symmetric_encryption_keys must be a list of possible keys"
-                )
-            try:
-                from cryptography.fernet import MultiFernet
-            except ImportError:
-                raise ValueError(
-                    "Cannot run with encryption without 'cryptography' installed."
-                )
-            sub_fernets = [self.make_fernet(key) for key in symmetric_encryption_keys]
-            self.crypter = MultiFernet(sub_fernets)
-        else:
-            self.crypter = None
 
     ### Channel layer API ###
 
@@ -656,40 +643,18 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Serializes message to a byte string.
         """
-        value = msgpack.packb(message, use_bin_type=True)
-        if self.crypter:
-            value = self.crypter.encrypt(value)
-
-        # As we use an sorted set to expire messages we need to guarantee uniqueness, with 12 bytes.
-        random_prefix = random.getrandbits(8 * 12).to_bytes(12, "big")
-        return random_prefix + value
+        return self._serializer.serialize(message)
 
     def deserialize(self, message):
         """
         Deserializes from a byte string.
         """
-        # Removes the random prefix
-        message = message[12:]
-
-        if self.crypter:
-            message = self.crypter.decrypt(message, self.expiry + 10)
-        return msgpack.unpackb(message, raw=False)
+        return self._serializer.deserialize(message)
 
     ### Internal functions ###
 
     def consistent_hash(self, value):
         return _consistent_hash(value, self.ring_size)
-
-    def make_fernet(self, key):
-        """
-        Given a single encryption key, returns a Fernet instance using it.
-        """
-        from cryptography.fernet import Fernet
-
-        if isinstance(key, str):
-            key = key.encode("utf8")
-        formatted_key = base64.urlsafe_b64encode(hashlib.sha256(key).digest())
-        return Fernet(formatted_key)
 
     def __str__(self):
         return f"{self.__class__.__name__}(hosts={self.hosts})"
