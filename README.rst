@@ -171,7 +171,8 @@ to 10, and all ``websocket.send!`` channels to 20:
 If you want to enforce a matching order, use an ``OrderedDict`` as the
 argument; channels will then be matched in the order the dict provides them.
 
-.. _encryption
+.. _encryption:
+
 ``symmetric_encryption_keys``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -241,9 +242,9 @@ And then in your channels consumer, you can implement the handler:
 
 
 ``serializer_format``
-~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
 
-By default every message sent to redis is encoded using `msgpack <https://msgpack.org/>`_ (_currently ``msgpack`` is a mandatory dependency of this package, it may become optional in a future release_).
+By default every message sent to redis is encoded using `msgpack <https://msgpack.org/>`_ (_currently ``msgpack`` is a mandatory dependency of this package, it may become optional in a future release).
 It is also possible to switch to `JSON <http://www.json.org/>`_:
 
 .. code-block:: python
