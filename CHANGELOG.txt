@@ -1,9 +1,8 @@
-4.2.1 (Expected EOY 2024)
--------------------------
+4.2.1 (2024-11-15)
+------------------
 
-* Added a way to register and use custom serializer formats
-
-* Fixed a typo
+* Added a way to register and use custom serializer formats.
+  See README.rst.
 
 4.2.0 (2024-01-12)
 ------------------
