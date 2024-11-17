@@ -19,7 +19,7 @@ There are two available implementations:
 
 Both layers support a single-server and sharded configurations.
 
-`channels_redis` is tested against Python 3.8 to 3.12, `redis-py` versions 4.6,
+`channels_redis` is tested against Python 3.8 to 3.13, `redis-py` versions 4.6,
 5.0, and the development branch, and Channels versions 3, 4 and the development
 branch there.
 
