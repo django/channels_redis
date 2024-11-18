@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import random
 
 import async_timeout
@@ -126,6 +127,25 @@ def test_double_receive(channel_layer):
 
 
 @pytest.mark.asyncio
+async def test_send_multiple(channel_layer):
+    messsages = [
+        {"type": "test.message.1"},
+        {"type": "test.message.2"},
+        {"type": "test.message.3"},
+    ]
+
+    await channel_layer.send_bulk("test-channel-1", messsages)
+
+    expected = {"test.message.1", "test.message.2", "test.message.3"}
+    received = set()
+    for _ in range(3):
+        msg = await channel_layer.receive("test-channel-1")
+        received.add(msg["type"])
+
+    assert received == expected
+
+
+@pytest.mark.asyncio
 async def test_send_capacity(channel_layer):
     """
     Makes sure we get ChannelFull when we hit the send capacity
@@ -223,6 +243,40 @@ async def test_groups_basic(channel_layer):
         async with async_timeout.timeout(1):
             await channel_layer.receive(channel_name2)
     await channel_layer.flush()
+
+
+@pytest.mark.asyncio
+async def test_groups_multiple(channel_layer):
+    """
+    Tests basic group operation.
+    """
+    channel_name1 = await channel_layer.new_channel(prefix="test-gr-chan-1")
+    channel_name2 = await channel_layer.new_channel(prefix="test-gr-chan-2")
+    channel_name3 = await channel_layer.new_channel(prefix="test-gr-chan-3")
+    await channel_layer.group_add("test-group", channel_name1)
+    await channel_layer.group_add("test-group", channel_name2)
+    await channel_layer.group_add("test-group", channel_name3)
+
+    messages = [
+        {"type": "message.1"},
+        {"type": "message.2"},
+        {"type": "message.3"},
+    ]
+
+    expected = {msg["type"] for msg in messages}
+
+    await channel_layer.group_send_bulk("test-group", messages)
+
+    received = collections.defaultdict(set)
+
+    for channel_name in (channel_name1, channel_name2, channel_name3):
+        async with async_timeout.timeout(1):
+            for _ in range(len(messages)):
+                received[channel_name].add(
+                    (await channel_layer.receive(channel_name))["type"]
+                )
+
+        assert received[channel_name] == expected
 
 
 @pytest.mark.asyncio
