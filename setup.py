@@ -31,6 +31,7 @@ setup(
     include_package_data=True,
     python_requires=">=3.8",
     install_requires=[
+        "aioredlock>=0.7.3,<1",
         "redis>=4.6",
         "msgpack~=1.0",
         "asgiref>=3.2.10,<4",

@@ -5,8 +5,8 @@ import sys
 
 import async_timeout
 import pytest
-
 from asgiref.sync import async_to_sync
+
 from channels_redis.pubsub import RedisPubSubChannelLayer
 from channels_redis.utils import _close_redis
 
@@ -261,3 +261,45 @@ async def test_discard_before_add(channel_layer):
     channel_name = await channel_layer.new_channel(prefix="test-channel")
     # Make sure that we can remove a group before it was ever added without crashing.
     await channel_layer.group_discard("test-group", channel_name)
+
+
+@pytest.mark.asyncio
+async def test_guarantee_at_most_once_delivery() -> None:
+    """
+    Tests that at most once delivery is guaranteed.
+
+    If two consumers are listening on the same channel,
+    the message should be delivered to only one of them.
+    """
+
+    channel_name = "same-channel"
+    loop = asyncio.get_running_loop()
+
+    channel_layer = RedisPubSubChannelLayer(hosts=TEST_HOSTS)
+    channel_layer_2 = RedisPubSubChannelLayer(hosts=TEST_HOSTS)
+    future_channel_layer = loop.create_future()
+    future_channel_layer_2 = loop.create_future()
+
+    async def receive_task(
+        channel_layer: RedisPubSubChannelLayer, future: asyncio.Future
+    ) -> None:
+        message = await channel_layer.receive(channel_name)
+        future.set_result(message)
+
+    # Ensure that receive_task_2 is scheduled first and accquires the lock
+    asyncio.create_task(receive_task(channel_layer_2, future_channel_layer_2))
+    await asyncio.sleep(1)
+    asyncio.create_task(receive_task(channel_layer, future_channel_layer))
+    await asyncio.sleep(1)
+
+    await channel_layer.send(channel_name, {"type": "test.message", "text": "Hello!"})
+
+    result = await future_channel_layer_2
+    assert result["type"] == "test.message"
+    assert result["text"] == "Hello!"
+
+    # Channel layer 1 should not receive the message
+    # as it is already consumed by channel layer 2
+    with pytest.raises(asyncio.TimeoutError):
+        async with async_timeout.timeout(1):
+            await future_channel_layer
