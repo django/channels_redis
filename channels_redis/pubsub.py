@@ -13,11 +13,16 @@ from .utils import (
     create_pool,
     decode_hosts,
 )
+from typing import TYPE_CHECKING, Dict, Union, Optional, Any, Iterable
 
+if TYPE_CHECKING:
+    from redis.asyncio.client import Redis
+    from redis.typing import ChannelT, EncodableT
+    from _typeshed import ReadableBuffer
 logger = logging.getLogger(__name__)
 
 
-async def _async_proxy(obj, name, *args, **kwargs):
+async def _async_proxy(obj: "RedisPubSubChannelLayer", name: "str", *args, **kwargs):
     # Must be defined as a function and not a method due to
     # https://bugs.python.org/issue38364
     layer = obj._get_layer()
@@ -28,20 +33,20 @@ class RedisPubSubChannelLayer:
     def __init__(
         self,
         *args,
-        symmetric_encryption_keys=None,
+        symmetric_encryption_keys: "Optional[Iterable[Union[str, ReadableBuffer]]]" = None,
         serializer_format="msgpack",
         **kwargs,
-    ) -> None:
+    ):
         self._args = args
         self._kwargs = kwargs
-        self._layers = {}
+        self._layers: "Dict[asyncio.AbstractEventLoop, RedisPubSubLoopLayer]" = {}
         # serialization
         self._serializer = registry.get_serializer(
             serializer_format,
             symmetric_encryption_keys=symmetric_encryption_keys,
         )
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str):
         if name in (
             "new_channel",
             "send",
@@ -55,19 +60,19 @@ class RedisPubSubChannelLayer:
         else:
             return getattr(self._get_layer(), name)
 
-    def serialize(self, message):
+    def serialize(self, message) -> bytes:
         """
         Serializes message to a byte string.
         """
         return self._serializer.serialize(message)
 
-    def deserialize(self, message):
+    def deserialize(self, message: bytes):
         """
         Deserializes from a byte string.
         """
         return self._serializer.deserialize(message)
 
-    def _get_layer(self):
+    def _get_layer(self) -> "RedisPubSubLoopLayer":
         loop = asyncio.get_running_loop()
 
         try:
@@ -91,11 +96,11 @@ class RedisPubSubLoopLayer:
 
     def __init__(
         self,
-        hosts=None,
+        hosts: "Union[Iterable, str, bytes, None]" = None,
         prefix="asgi",
         on_disconnect=None,
         on_reconnect=None,
-        channel_layer=None,
+        channel_layer: "Optional[RedisPubSubChannelLayer]" = None,
         **kwargs,
     ):
         self.prefix = prefix
@@ -106,7 +111,7 @@ class RedisPubSubLoopLayer:
 
         # Each consumer gets its own *specific* channel, created with the `new_channel()` method.
         # This dict maps `channel_name` to a queue of messages for that channel.
-        self.channels = {}
+        self.channels: "Dict[Any, asyncio.Queue]" = {}
 
         # A channel can subscribe to zero or more groups.
         # This dict maps `group_name` to set of channel names who are subscribed to that group.
@@ -117,13 +122,15 @@ class RedisPubSubLoopLayer:
             RedisSingleShardConnection(host, self) for host in decode_hosts(hosts)
         ]
 
-    def _get_shard(self, channel_or_group_name):
+    def _get_shard(
+        self, channel_or_group_name: "Union[str, ReadableBuffer]"
+    ) -> "RedisSingleShardConnection":
         """
         Return the shard that is used exclusively for this channel or group.
         """
         return self._shards[_consistent_hash(channel_or_group_name, len(self._shards))]
 
-    def _get_group_channel_name(self, group):
+    def _get_group_channel_name(self, group) -> str:
         """
         Return the channel name used by a group.
         Includes '__group__' in the returned
@@ -259,16 +266,16 @@ class RedisPubSubLoopLayer:
 
 
 class RedisSingleShardConnection:
-    def __init__(self, host, channel_layer):
+    def __init__(self, host: "Dict[str, Any]", channel_layer: "RedisPubSubLoopLayer"):
         self.host = host
         self.channel_layer = channel_layer
         self._subscribed_to = set()
         self._lock = asyncio.Lock()
-        self._redis = None
+        self._redis: "Optional[Redis]" = None
         self._pubsub = None
-        self._receive_task = None
+        self._receive_task: "Optional[asyncio.Task]" = None
 
-    async def publish(self, channel, message):
+    async def publish(self, channel: "ChannelT", message: "EncodableT"):
         async with self._lock:
             self._ensure_redis()
             await self._redis.publish(channel, message)
@@ -327,7 +334,7 @@ class RedisSingleShardConnection:
                 logger.exception("Unexpected exception in receive task")
                 await asyncio.sleep(1)
 
-    def _receive_message(self, message):
+    def _receive_message(self, message: "Optional[Dict]"):
         if message is not None:
             name = message["channel"]
             data = message["data"]
