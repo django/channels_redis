@@ -2,9 +2,9 @@ import binascii
 import types
 from redis import asyncio as aioredis
 from redis.asyncio import sentinel as redis_sentinel
-from typing import TYPE_CHECKING, Dict, List, Union, Any, Iterable
+import typing
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from typing_extensions import Buffer
 
     from redis.asyncio.connection import ConnectionPool
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from .core import RedisChannelLayer
 
 
-def _consistent_hash(value: "Union[str, Buffer]", ring_size: int) -> int:
+def _consistent_hash(value: typing.Union[str, "Buffer"], ring_size: int) -> int:
     """
     Maps the value to a node value between 0 and 4095
     using CRC, then down to one of the ring nodes.
@@ -32,7 +32,7 @@ def _consistent_hash(value: "Union[str, Buffer]", ring_size: int) -> int:
 
 
 def _wrap_close(
-    proxy: "Union[RedisPubSubChannelLayer, RedisChannelLayer]",
+    proxy: typing.Union["RedisPubSubChannelLayer", "RedisChannelLayer"],
     loop: "AbstractEventLoop",
 ):
     original_impl = loop.close
@@ -60,8 +60,8 @@ async def _close_redis(connection: "Redis"):
 
 
 def decode_hosts(
-    hosts: "Union[Iterable, str, bytes, None]",
-) -> "List[Dict]":
+    hosts: typing.Union[typing.Iterable, str, bytes, None],
+) -> typing.List[typing.Dict]:
     """
     Takes the value of the "hosts" argument and returns
     a list of kwargs to use for the Redis connection constructor.
@@ -76,7 +76,7 @@ def decode_hosts(
         )
 
     # Decode each hosts entry into a kwargs dict
-    result: "List[Dict]" = []
+    result: typing.List[typing.Dict] = []
     for entry in hosts:
         if isinstance(entry, dict):
             result.append(entry)
@@ -87,7 +87,7 @@ def decode_hosts(
     return result
 
 
-def create_pool(host: "Dict[str, Any]") -> "ConnectionPool":
+def create_pool(host: typing.Dict[str, typing.Any]) -> "ConnectionPool":
     """
     Takes the value of the "host" argument and returns a suited connection pool to
     the corresponding redis instance.

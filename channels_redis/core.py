@@ -19,12 +19,12 @@ from .utils import (
     create_pool,
     decode_hosts,
 )
-from typing import TYPE_CHECKING, Dict, List, Tuple, Union, Optional
 
-if TYPE_CHECKING:
+import typing
+
+if typing.TYPE_CHECKING:
     from redis.asyncio.connection import ConnectionPool
     from redis.asyncio.client import Redis
-    from .core import RedisChannelLayer
     from typing_extensions import Buffer
 
 logger = logging.getLogger(__name__)
@@ -39,10 +39,10 @@ class ChannelLock:
     """
 
     def __init__(self):
-        self.locks: "collections.defaultdict[str, asyncio.Lock]" = (
+        self.locks: collections.defaultdict[str, asyncio.Lock] = (
             collections.defaultdict(asyncio.Lock)
         )
-        self.wait_counts: "collections.defaultdict[str, int]" = collections.defaultdict(
+        self.wait_counts: collections.defaultdict[str, int] = collections.defaultdict(
             int
         )
 
@@ -87,7 +87,7 @@ class RedisLoopLayer:
     def __init__(self, channel_layer: "RedisChannelLayer"):
         self._lock = asyncio.Lock()
         self.channel_layer = channel_layer
-        self._connections: "Dict[int, Redis]" = {}
+        self._connections: typing.Dict[int, "Redis"] = {}
 
     def get_connection(self, index: int) -> "Redis":
         if index not in self._connections:
@@ -145,7 +145,7 @@ class RedisChannelLayer(BaseChannelLayer):
             symmetric_encryption_keys=symmetric_encryption_keys,
         )
         # Cached redis connection pools and the event loop they are from
-        self._layers: "Dict[asyncio.AbstractEventLoop, RedisLoopLayer]" = {}
+        self._layers: typing.Dict[asyncio.AbstractEventLoop, "RedisLoopLayer"] = {}
         # Normal channels choose a host index by cycling through the available hosts
         self._receive_index_generator = itertools.cycle(range(len(self.hosts)))
         self._send_index_generator = itertools.cycle(range(len(self.hosts)))
@@ -154,15 +154,15 @@ class RedisChannelLayer(BaseChannelLayer):
         # Number of coroutines trying to receive right now
         self.receive_count = 0
         # The receive lock
-        self.receive_lock: "Optional[asyncio.Lock]" = None
+        self.receive_lock: typing.Optional[asyncio.Lock] = None
         # Event loop they are trying to receive on
-        self.receive_event_loop: "Optional[asyncio.AbstractEventLoop]" = None
+        self.receive_event_loop: typing.Optional[asyncio.AbstractEventLoop] = None
         # Buffered messages by process-local channel name
-        self.receive_buffer: "collections.defaultdict[str, BoundedQueue]" = (
+        self.receive_buffer: collections.defaultdict[str, BoundedQueue] = (
             collections.defaultdict(functools.partial(BoundedQueue, self.capacity))
         )
         # Detached channel cleanup tasks
-        self.receive_cleaners: "List[asyncio.Task]" = []
+        self.receive_cleaners: typing.List[asyncio.Task] = []
         # Per-channel cleanup locks to prevent a receive starting and moving
         # a message back into the main queue before its cleanup has completed
         self.receive_clean_locks = ChannelLock()
@@ -180,7 +180,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         # Typecheck
         assert isinstance(message, dict), "message is not a dict"
-        assert self.require_valid_channel_name(channel), "Channel name not valid"
+        assert self.valid_channel_name(channel), "Channel name not valid"
         # Make sure the message does not contain reserved keys
         assert "__asgi_channel__" not in message
         # If it's a process-local channel, strip off local part and stick full name in message
@@ -221,7 +221,7 @@ class RedisChannelLayer(BaseChannelLayer):
         return channel + "$inflight"
 
     async def _brpop_with_clean(
-        self, index: int, channel: str, timeout: "Union[int, float, bytes, str]"
+        self, index: int, channel: str, timeout: typing.Union[int, float, bytes, str]
     ):
         """
         Perform a Redis BRPOP and manage the backup processing queue.
@@ -269,7 +269,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         # Make sure the channel name is valid then get the non-local part
         # and thus its index
-        assert self.require_valid_channel_name(channel)
+        assert self.valid_channel_name(channel)
         if "!" in channel:
             real_channel = self.non_local_name(channel)
             assert real_channel.endswith(
@@ -385,14 +385,12 @@ class RedisChannelLayer(BaseChannelLayer):
             # Do a plain direct receive
             return (await self.receive_single(channel))[1]
 
-    async def receive_single(self, channel: str) -> "Tuple":
+    async def receive_single(self, channel: str) -> typing.Tuple:
         """
         Receives a single message off of the channel and returns it.
         """
         # Check channel name
-        assert self.require_valid_channel_name(
-            channel, receive=True
-        ), "Channel name invalid"
+        assert self.valid_channel_name(channel, receive=True), "Channel name invalid"
         # Work out the connection to use
         if "!" in channel:
             assert channel.endswith("!")
@@ -423,7 +421,7 @@ class RedisChannelLayer(BaseChannelLayer):
             )
             self.receive_cleaners.append(cleaner)
 
-            def _cleanup_done(cleaner: "asyncio.Task"):
+            def _cleanup_done(cleaner: asyncio.Task):
                 self.receive_cleaners.remove(cleaner)
                 self.receive_clean_locks.release(channel_key)
 
@@ -497,8 +495,8 @@ class RedisChannelLayer(BaseChannelLayer):
         Adds the channel name to a group.
         """
         # Check the inputs
-        assert self.require_valid_group_name(group), True
-        assert self.require_valid_channel_name(channel), True
+        assert self.valid_group_name(group), True
+        assert self.valid_channel_name(channel), True
         # Get a connection to the right shard
         group_key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
@@ -513,8 +511,8 @@ class RedisChannelLayer(BaseChannelLayer):
         Removes the channel from the named group if it is in the group;
         does nothing otherwise (does not error)
         """
-        assert self.require_valid_group_name(group), "Group name not valid"
-        assert self.require_valid_channel_name(channel), "Channel name not valid"
+        assert self.valid_group_name(group), "Group name not valid"
+        assert self.valid_channel_name(channel), "Channel name not valid"
         key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
         await connection.zrem(key, channel)
@@ -523,7 +521,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Sends a message to the entire group.
         """
-        assert self.require_valid_group_name(group), "Group name not valid"
+        assert self.valid_group_name(group), "Group name not valid"
         # Retrieve list of all channel names
         key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
@@ -671,7 +669,7 @@ class RedisChannelLayer(BaseChannelLayer):
 
     ### Internal functions ###
 
-    def consistent_hash(self, value: "Union[str, Buffer]") -> int:
+    def consistent_hash(self, value: typing.Union[str, "Buffer"]) -> int:
         return _consistent_hash(value, self.ring_size)
 
     def __str__(self):

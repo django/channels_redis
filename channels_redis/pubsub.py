@@ -13,15 +13,16 @@ from .utils import (
     create_pool,
     decode_hosts,
 )
-from typing import TYPE_CHECKING, Dict, Union, Optional, Any, Iterable
 
-if TYPE_CHECKING:
+import typing
+
+if typing.TYPE_CHECKING:
     from redis.asyncio.client import Redis
     from typing_extensions import Buffer
 logger = logging.getLogger(__name__)
 
 
-async def _async_proxy(obj: "RedisPubSubChannelLayer", name: "str", *args, **kwargs):
+async def _async_proxy(obj: "RedisPubSubChannelLayer", name: str, *args, **kwargs):
     # Must be defined as a function and not a method due to
     # https://bugs.python.org/issue38364
     layer = obj._get_layer()
@@ -32,13 +33,15 @@ class RedisPubSubChannelLayer:
     def __init__(
         self,
         *args,
-        symmetric_encryption_keys: "Optional[Iterable[Union[str, Buffer]]]" = None,
+        symmetric_encryption_keys: typing.Optional[
+            typing.Iterable[typing.Union[str, "Buffer"]]
+        ] = None,
         serializer_format="msgpack",
         **kwargs,
     ):
         self._args = args
         self._kwargs = kwargs
-        self._layers: "Dict[asyncio.AbstractEventLoop, RedisPubSubLoopLayer]" = {}
+        self._layers: typing.Dict[asyncio.AbstractEventLoop, RedisPubSubLoopLayer] = {}
         # serialization
         self._serializer = registry.get_serializer(
             serializer_format,
@@ -95,11 +98,11 @@ class RedisPubSubLoopLayer:
 
     def __init__(
         self,
-        hosts: "Union[Iterable, str, bytes, None]" = None,
-        prefix="asgi",
+        hosts: typing.Union[typing.Iterable, str, bytes, None] = None,
+        prefix: str = "asgi",
         on_disconnect=None,
         on_reconnect=None,
-        channel_layer: "Optional[RedisPubSubChannelLayer]" = None,
+        channel_layer: typing.Optional[RedisPubSubChannelLayer] = None,
         **kwargs,
     ):
         self.prefix = prefix
@@ -110,7 +113,7 @@ class RedisPubSubLoopLayer:
 
         # Each consumer gets its own *specific* channel, created with the `new_channel()` method.
         # This dict maps `channel_name` to a queue of messages for that channel.
-        self.channels: "Dict[Any, asyncio.Queue]" = {}
+        self.channels: typing.Dict[typing.Any, asyncio.Queue] = {}
 
         # A channel can subscribe to zero or more groups.
         # This dict maps `group_name` to set of channel names who are subscribed to that group.
@@ -122,7 +125,7 @@ class RedisPubSubLoopLayer:
         ]
 
     def _get_shard(
-        self, channel_or_group_name: "Union[str, Buffer]"
+        self, channel_or_group_name: typing.Union[str, "Buffer"]
     ) -> "RedisSingleShardConnection":
         """
         Return the shard that is used exclusively for this channel or group.
@@ -265,17 +268,21 @@ class RedisPubSubLoopLayer:
 
 
 class RedisSingleShardConnection:
-    def __init__(self, host: "Dict[str, Any]", channel_layer: "RedisPubSubLoopLayer"):
+    def __init__(
+        self, host: typing.Dict[str, typing.Any], channel_layer: RedisPubSubLoopLayer
+    ):
         self.host = host
         self.channel_layer = channel_layer
         self._subscribed_to = set()
         self._lock = asyncio.Lock()
-        self._redis: "Optional[Redis]" = None
+        self._redis: typing.Optional["Redis"] = None
         self._pubsub = None
-        self._receive_task: "Optional[asyncio.Task]" = None
+        self._receive_task: typing.Optional[asyncio.Task] = None
 
     async def publish(
-        self, channel: "Union[str, bytes]", message: "Union[str, bytes, int, float]"
+        self,
+        channel: typing.Union[str, bytes],
+        message: typing.Union[str, bytes, int, float],
     ):
         async with self._lock:
             self._ensure_redis()
@@ -335,7 +342,7 @@ class RedisSingleShardConnection:
                 logger.exception("Unexpected exception in receive task")
                 await asyncio.sleep(1)
 
-    def _receive_message(self, message: "Optional[Dict]"):
+    def _receive_message(self, message: typing.Optional[typing.Dict]):
         if message is not None:
             name = message["channel"]
             data = message["data"]

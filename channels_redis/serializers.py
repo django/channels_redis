@@ -3,9 +3,9 @@ import base64
 import hashlib
 import json
 import random
-from typing import TYPE_CHECKING, Dict, Union, Optional, Any, Iterable, Type, cast
+import typing
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from typing_extensions import Buffer
 
 try:
@@ -24,19 +24,23 @@ class SerializerDoesNotExist(KeyError):
 class BaseMessageSerializer(abc.ABC):
     def __init__(
         self,
-        symmetric_encryption_keys: "Optional[Iterable[Union[str, Buffer]]]" = None,
+        symmetric_encryption_keys: typing.Optional[
+            typing.Iterable[typing.Union[str, "Buffer"]]
+        ] = None,
         random_prefix_length: int = 0,
-        expiry: "Optional[int]" = None,
+        expiry: typing.Optional[int] = None,
     ):
         self.random_prefix_length = random_prefix_length
         self.expiry = expiry
-        self.crypter: "Optional[MultiFernet]" = None
+        self.crypter: typing.Optional["MultiFernet"] = None
         # Set up any encryption objects
         self._setup_encryption(symmetric_encryption_keys)
 
     def _setup_encryption(
         self,
-        symmetric_encryption_keys: "Optional[Union[Iterable[Union[str, Buffer]], str, bytes]]",
+        symmetric_encryption_keys: typing.Optional[
+            typing.Union[typing.Iterable[typing.Union[str, "Buffer"]], str, bytes]
+        ],
     ):
         # See if we can do encryption if they asked
         if not symmetric_encryption_keys:
@@ -47,7 +51,9 @@ class BaseMessageSerializer(abc.ABC):
             raise ValueError(
                 "symmetric_encryption_keys must be a list of possible keys"
             )
-        keys = cast("Iterable[Union[str, Buffer]]", symmetric_encryption_keys)
+        keys = typing.cast(
+            typing.Iterable[typing.Union[str, "Buffer"]], symmetric_encryption_keys
+        )
         if _MultiFernet is None:
             raise ValueError(
                 "Cannot run with encryption without 'cryptography' installed."
@@ -55,7 +61,7 @@ class BaseMessageSerializer(abc.ABC):
         sub_fernets = [self.make_fernet(key) for key in keys]
         self.crypter = _MultiFernet(sub_fernets)
 
-    def make_fernet(self, key: "Union[str, Buffer]") -> "Fernet":
+    def make_fernet(self, key: typing.Union[str, "Buffer"]) -> "Fernet":
         """
         Given a single encryption key, returns a Fernet instance using it.
         """
@@ -129,7 +135,7 @@ class JSONSerializer(BaseMessageSerializer):
 
 
 # code ready for a future in which msgpack may become an optional dependency
-MsgPackSerializer: "Optional[Type[BaseMessageSerializer]]" = None
+MsgPackSerializer: typing.Optional[typing.Type[BaseMessageSerializer]] = None
 try:
     import msgpack
 except ImportError as exc:
@@ -153,10 +159,10 @@ class SerializersRegistry:
     """
 
     def __init__(self):
-        self._registry: "Dict[Any, Type[BaseMessageSerializer]]" = {}
+        self._registry: typing.Dict[typing.Any, typing.Type[BaseMessageSerializer]] = {}
 
     def register_serializer(
-        self, format, serializer_class: "Type[BaseMessageSerializer]"
+        self, format, serializer_class: typing.Type[BaseMessageSerializer]
     ):
         """
         Register a new serializer for given format
@@ -174,7 +180,7 @@ class SerializersRegistry:
 
         self._registry[format] = serializer_class
 
-    def get_serializer(self, format, *args, **kwargs) -> "BaseMessageSerializer":
+    def get_serializer(self, format, *args, **kwargs) -> BaseMessageSerializer:
         try:
             serializer_class = self._registry[format]
         except KeyError:
