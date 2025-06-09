@@ -4,6 +4,7 @@ import functools
 import itertools
 import logging
 import time
+import typing
 import uuid
 
 from redis import asyncio as aioredis
@@ -20,11 +21,9 @@ from .utils import (
     decode_hosts,
 )
 
-import typing
-
 if typing.TYPE_CHECKING:
-    from redis.asyncio.connection import ConnectionPool
     from redis.asyncio.client import Redis
+    from redis.asyncio.connection import ConnectionPool
     from typing_extensions import Buffer
 
 logger = logging.getLogger(__name__)

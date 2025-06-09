@@ -1,18 +1,19 @@
 import binascii
 import types
-from redis import asyncio as aioredis
-from redis.asyncio import sentinel as redis_sentinel
 import typing
 
-if typing.TYPE_CHECKING:
-    from typing_extensions import Buffer
+from redis import asyncio as aioredis
+from redis.asyncio import sentinel as redis_sentinel
 
-    from redis.asyncio.connection import ConnectionPool
-    from redis.asyncio.client import Redis
+if typing.TYPE_CHECKING:
     from asyncio import AbstractEventLoop
 
-    from .pubsub import RedisPubSubChannelLayer
+    from redis.asyncio.client import Redis
+    from redis.asyncio.connection import ConnectionPool
+    from typing_extensions import Buffer
+
     from .core import RedisChannelLayer
+    from .pubsub import RedisPubSubChannelLayer
 
 
 def _consistent_hash(value: typing.Union[str, "Buffer"], ring_size: int) -> int:

@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import logging
+import typing
 import uuid
 
 from redis import asyncio as aioredis
@@ -13,8 +14,6 @@ from .utils import (
     create_pool,
     decode_hosts,
 )
-
-import typing
 
 if typing.TYPE_CHECKING:
     from redis.asyncio.client import Redis
