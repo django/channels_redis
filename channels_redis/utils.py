@@ -35,10 +35,10 @@ def _consistent_hash(value: typing.Union[str, "Buffer"], ring_size: int) -> int:
 def _wrap_close(
     proxy: typing.Union["RedisPubSubChannelLayer", "RedisChannelLayer"],
     loop: "AbstractEventLoop",
-):
+) -> None:
     original_impl = loop.close
 
-    def _wrapper(self, *args, **kwargs):
+    def _wrapper(self, *args, **kwargs) -> typing.Any:
         if loop in proxy._layers:
             layer = proxy._layers[loop]
             del proxy._layers[loop]
@@ -47,10 +47,10 @@ def _wrap_close(
         self.close = original_impl
         return self.close(*args, **kwargs)
 
-    loop.close = types.MethodType(_wrapper, loop)
+    loop.close = types.MethodType(_wrapper, loop)  # type: ignore[method-assign]
 
 
-async def _close_redis(connection: "Redis"):
+async def _close_redis(connection: "Redis") -> None:
     """
     Handle compatibility with redis-py 4.x and 5.x close methods
     """
@@ -61,8 +61,8 @@ async def _close_redis(connection: "Redis"):
 
 
 def decode_hosts(
-    hosts: typing.Union[typing.Iterable, str, bytes, None],
-) -> typing.List[typing.Dict]:
+    hosts: typing.Union[typing.Iterable[typing.Any], str, bytes, None],
+) -> typing.List[typing.Dict[typing.Any, typing.Any]]:
     """
     Takes the value of the "hosts" argument and returns
     a list of kwargs to use for the Redis connection constructor.
@@ -77,7 +77,7 @@ def decode_hosts(
         )
 
     # Decode each hosts entry into a kwargs dict
-    result: typing.List[typing.Dict] = []
+    result: typing.List[typing.Dict[typing.Any, typing.Any]] = []
     for entry in hosts:
         if isinstance(entry, dict):
             result.append(entry)

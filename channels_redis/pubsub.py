@@ -3,6 +3,7 @@ import functools
 import logging
 import typing
 import uuid
+from copy import deepcopy
 
 from redis import asyncio as aioredis
 
@@ -16,12 +17,14 @@ from .utils import (
 )
 
 if typing.TYPE_CHECKING:
-    from redis.asyncio.client import Redis
+    from redis.asyncio.client import PubSub, Redis
     from typing_extensions import Buffer
 logger = logging.getLogger(__name__)
 
 
-async def _async_proxy(obj: "RedisPubSubChannelLayer", name: str, *args, **kwargs):
+async def _async_proxy(
+    obj: "RedisPubSubChannelLayer", name: str, *args, **kwargs
+) -> typing.Any:
     # Must be defined as a function and not a method due to
     # https://bugs.python.org/issue38364
     layer = obj._get_layer()
@@ -37,7 +40,7 @@ class RedisPubSubChannelLayer:
         ] = None,
         serializer_format="msgpack",
         **kwargs,
-    ):
+    ) -> None:
         self._args = args
         self._kwargs = kwargs
         self._layers: typing.Dict[asyncio.AbstractEventLoop, RedisPubSubLoopLayer] = {}
@@ -47,7 +50,7 @@ class RedisPubSubChannelLayer:
             symmetric_encryption_keys=symmetric_encryption_keys,
         )
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> typing.Any:
         if name in (
             "new_channel",
             "send",
@@ -61,13 +64,13 @@ class RedisPubSubChannelLayer:
         else:
             return getattr(self._get_layer(), name)
 
-    def serialize(self, message) -> bytes:
+    def serialize(self, message: typing.Any) -> bytes:
         """
         Serializes message to a byte string.
         """
         return self._serializer.serialize(message)
 
-    def deserialize(self, message: bytes):
+    def deserialize(self, message: bytes) -> typing.Any:
         """
         Deserializes from a byte string.
         """
@@ -79,10 +82,11 @@ class RedisPubSubChannelLayer:
         try:
             layer = self._layers[loop]
         except KeyError:
+            kwargs = deepcopy(self._kwargs)
+            kwargs["channel_layer"] = self
             layer = RedisPubSubLoopLayer(
                 *self._args,
-                **self._kwargs,
-                channel_layer=self,
+                **kwargs,
             )
             self._layers[loop] = layer
             _wrap_close(self, loop)
@@ -97,13 +101,13 @@ class RedisPubSubLoopLayer:
 
     def __init__(
         self,
-        hosts: typing.Union[typing.Iterable, str, bytes, None] = None,
+        hosts: typing.Union[typing.Iterable[typing.Any], str, bytes, None] = None,
         prefix: str = "asgi",
         on_disconnect=None,
         on_reconnect=None,
         channel_layer: typing.Optional[RedisPubSubChannelLayer] = None,
         **kwargs,
-    ):
+    ) -> None:
         self.prefix = prefix
 
         self.on_disconnect = on_disconnect
@@ -112,11 +116,11 @@ class RedisPubSubLoopLayer:
 
         # Each consumer gets its own *specific* channel, created with the `new_channel()` method.
         # This dict maps `channel_name` to a queue of messages for that channel.
-        self.channels: typing.Dict[typing.Any, asyncio.Queue] = {}
+        self.channels: typing.Dict[typing.Any, asyncio.Queue[typing.Any]] = {}
 
         # A channel can subscribe to zero or more groups.
         # This dict maps `group_name` to set of channel names who are subscribed to that group.
-        self.groups = {}
+        self.groups: typing.Dict[str, typing.Set[typing.Any]] = {}
 
         # For each host, we create a `RedisSingleShardConnection` to manage the connection to that host.
         self._shards = [
@@ -131,7 +135,7 @@ class RedisPubSubLoopLayer:
         """
         return self._shards[_consistent_hash(channel_or_group_name, len(self._shards))]
 
-    def _get_group_channel_name(self, group) -> str:
+    def _get_group_channel_name(self, group: str) -> str:
         """
         Return the channel name used by a group.
         Includes '__group__' in the returned
@@ -143,7 +147,7 @@ class RedisPubSubLoopLayer:
         """
         return f"{self.prefix}__group__{group}"
 
-    async def _subscribe_to_channel(self, channel):
+    async def _subscribe_to_channel(self, channel: typing.Union[str, bytes]) -> None:
         self.channels[channel] = asyncio.Queue()
         shard = self._get_shard(channel)
         await shard.subscribe(channel)
@@ -154,14 +158,16 @@ class RedisPubSubLoopLayer:
     # Channel layer API
     ################################################################################
 
-    async def send(self, channel, message):
+    async def send(
+        self, channel: typing.Union[str, bytes], message: typing.Any
+    ) -> None:
         """
         Send a message onto a (general or specific) channel.
         """
         shard = self._get_shard(channel)
-        await shard.publish(channel, self.channel_layer.serialize(message))
+        await shard.publish(channel, self.channel_layer.serialize(message))  # type: ignore[union-attr]
 
-    async def new_channel(self, prefix="specific."):
+    async def new_channel(self, prefix: str = "specific.") -> str:
         """
         Returns a new channel name that can be used by a consumer in our
         process as a specific channel.
@@ -170,7 +176,7 @@ class RedisPubSubLoopLayer:
         await self._subscribe_to_channel(channel)
         return channel
 
-    async def receive(self, channel):
+    async def receive(self, channel: typing.Union[str, bytes]) -> typing.Any:
         """
         Receive the first message that arrives on the channel.
         If more than one coroutine waits on the same channel, a random one
@@ -201,13 +207,13 @@ class RedisPubSubLoopLayer:
                     # We don't re-raise here because we want the CancelledError to be the one re-raised.
             raise
 
-        return self.channel_layer.deserialize(message)
+        return self.channel_layer.deserialize(message)  # type: ignore[union-attr]
 
     ################################################################################
     # Groups extension
     ################################################################################
 
-    async def group_add(self, group, channel):
+    async def group_add(self, group: str, channel: typing.Union[str, bytes]) -> None:
         """
         Adds the channel name to a group.
         """
@@ -226,7 +232,9 @@ class RedisPubSubLoopLayer:
         shard = self._get_shard(group_channel)
         await shard.subscribe(group_channel)
 
-    async def group_discard(self, group, channel):
+    async def group_discard(
+        self, group: str, channel: typing.Union[str, bytes]
+    ) -> None:
         """
         Removes the channel from a group if it is in the group;
         does nothing otherwise (does not error)
@@ -242,19 +250,19 @@ class RedisPubSubLoopLayer:
             shard = self._get_shard(group_channel)
             await shard.unsubscribe(group_channel)
 
-    async def group_send(self, group, message):
+    async def group_send(self, group: str, message: typing.Any) -> None:
         """
         Send the message to all subscribers of the group.
         """
         group_channel = self._get_group_channel_name(group)
         shard = self._get_shard(group_channel)
-        await shard.publish(group_channel, self.channel_layer.serialize(message))
+        await shard.publish(group_channel, self.channel_layer.serialize(message))  # type: ignore[union-attr]
 
     ################################################################################
     # Flush extension
     ################################################################################
 
-    async def flush(self):
+    async def flush(self) -> None:
         """
         Flush the layer, making it like new. It can continue to be used as if it
         was just created. This also closes connections, serving as a clean-up
@@ -269,41 +277,41 @@ class RedisPubSubLoopLayer:
 class RedisSingleShardConnection:
     def __init__(
         self, host: typing.Dict[str, typing.Any], channel_layer: RedisPubSubLoopLayer
-    ):
+    ) -> None:
         self.host = host
         self.channel_layer = channel_layer
-        self._subscribed_to = set()
+        self._subscribed_to: typing.Set[typing.Union[str, bytes]] = set()
         self._lock = asyncio.Lock()
         self._redis: typing.Optional["Redis"] = None
-        self._pubsub = None
-        self._receive_task: typing.Optional[asyncio.Task] = None
+        self._pubsub: typing.Optional["PubSub"] = None
+        self._receive_task: typing.Optional["asyncio.Task[typing.Any]"] = None
 
     async def publish(
         self,
         channel: typing.Union[str, bytes],
         message: typing.Union[str, bytes, int, float],
-    ):
+    ) -> None:
         async with self._lock:
             self._ensure_redis()
-            await self._redis.publish(channel, message)
+            await self._redis.publish(channel, message)  # type: ignore[union-attr]
 
-    async def subscribe(self, channel):
+    async def subscribe(self, channel: typing.Union[str, bytes]) -> None:
         async with self._lock:
             if channel not in self._subscribed_to:
                 self._ensure_redis()
                 self._ensure_receiver()
-                await self._pubsub.subscribe(channel)
+                await self._pubsub.subscribe(channel)  # type: ignore[union-attr]
                 self._subscribed_to.add(channel)
 
-    async def unsubscribe(self, channel):
+    async def unsubscribe(self, channel: typing.Union[str, bytes]) -> None:
         async with self._lock:
             if channel in self._subscribed_to:
                 self._ensure_redis()
                 self._ensure_receiver()
-                await self._pubsub.unsubscribe(channel)
+                await self._pubsub.unsubscribe(channel)  # type: ignore[union-attr]
                 self._subscribed_to.remove(channel)
 
-    async def flush(self):
+    async def flush(self) -> None:
         async with self._lock:
             if self._receive_task is not None:
                 self._receive_task.cancel()
@@ -321,7 +329,7 @@ class RedisSingleShardConnection:
                 self._pubsub = None
             self._subscribed_to = set()
 
-    async def _do_receiving(self):
+    async def _do_receiving(self) -> None:
         while True:
             try:
                 if self._pubsub and self._pubsub.subscribed:
@@ -341,7 +349,9 @@ class RedisSingleShardConnection:
                 logger.exception("Unexpected exception in receive task")
                 await asyncio.sleep(1)
 
-    def _receive_message(self, message: typing.Optional[typing.Dict]):
+    def _receive_message(
+        self, message: typing.Optional[typing.Dict[typing.Any, typing.Any]]
+    ) -> None:
         if message is not None:
             name = message["channel"]
             data = message["data"]
@@ -354,12 +364,12 @@ class RedisSingleShardConnection:
                     if channel_name in self.channel_layer.channels:
                         self.channel_layer.channels[channel_name].put_nowait(data)
 
-    def _ensure_redis(self):
+    def _ensure_redis(self) -> None:
         if self._redis is None:
             pool = create_pool(self.host)
             self._redis = aioredis.Redis(connection_pool=pool)
             self._pubsub = self._redis.pubsub()
 
-    def _ensure_receiver(self):
+    def _ensure_receiver(self) -> None:
         if self._receive_task is None:
             self._receive_task = asyncio.ensure_future(self._do_receiving())

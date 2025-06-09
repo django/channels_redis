@@ -11,10 +11,11 @@ if typing.TYPE_CHECKING:
 try:
     from cryptography.fernet import Fernet, MultiFernet
 
-    _MultiFernet = MultiFernet
-    _Fernet = Fernet
+    _MultiFernet: typing.Optional[typing.Type[MultiFernet]] = MultiFernet
+    _Fernet: typing.Optional[typing.Type[Fernet]] = Fernet
 except ImportError:
-    _MultiFernet = _Fernet = None
+    _MultiFernet = None
+    _Fernet = None
 
 
 class SerializerDoesNotExist(KeyError):
@@ -41,25 +42,21 @@ class BaseMessageSerializer(abc.ABC):
         symmetric_encryption_keys: typing.Optional[
             typing.Union[typing.Iterable[typing.Union[str, "Buffer"]], str, bytes]
         ],
-    ):
+    ) -> None:
         # See if we can do encryption if they asked
-        if not symmetric_encryption_keys:
+        if symmetric_encryption_keys:
+            if isinstance(symmetric_encryption_keys, (str, bytes)):
+                raise ValueError(
+                    "symmetric_encryption_keys must be a list of possible keys"
+                )
+            if _MultiFernet is None:
+                raise ValueError(
+                    "Cannot run with encryption without 'cryptography' installed."
+                )
+            sub_fernets = [self.make_fernet(key) for key in symmetric_encryption_keys]
+            self.crypter = _MultiFernet(sub_fernets)
+        else:
             self.crypter = None
-            return
-
-        if isinstance(symmetric_encryption_keys, (str, bytes)):
-            raise ValueError(
-                "symmetric_encryption_keys must be a list of possible keys"
-            )
-        keys = typing.cast(
-            typing.Iterable[typing.Union[str, "Buffer"]], symmetric_encryption_keys
-        )
-        if _MultiFernet is None:
-            raise ValueError(
-                "Cannot run with encryption without 'cryptography' installed."
-            )
-        sub_fernets = [self.make_fernet(key) for key in keys]
-        self.crypter = _MultiFernet(sub_fernets)
 
     def make_fernet(self, key: typing.Union[str, "Buffer"]) -> "Fernet":
         """
@@ -76,32 +73,32 @@ class BaseMessageSerializer(abc.ABC):
         return _Fernet(formatted_key)
 
     @abc.abstractmethod
-    def as_bytes(self, message, *args, **kwargs):
+    def as_bytes(self, message: typing.Any, *args, **kwargs) -> bytes:
         raise NotImplementedError
 
     @abc.abstractmethod
-    def from_bytes(self, message, *args, **kwargs):
+    def from_bytes(self, message: bytes, *args, **kwargs) -> typing.Any:
         raise NotImplementedError
 
-    def serialize(self, message) -> bytes:
+    def serialize(self, message: typing.Any) -> bytes:
         """
         Serializes message to a byte string.
         """
-        message = self.as_bytes(message)
+        msg = self.as_bytes(message)
         if self.crypter:
-            message = self.crypter.encrypt(message)
+            msg = self.crypter.encrypt(msg)
 
         if self.random_prefix_length > 0:
             # provide random prefix
-            message = (
+            msg = (
                 random.getrandbits(8 * self.random_prefix_length).to_bytes(
                     self.random_prefix_length, "big"
                 )
-                + message
+                + msg
             )
-        return message
+        return msg
 
-    def deserialize(self, message: bytes):
+    def deserialize(self, message: bytes) -> typing.Any:
         """
         Deserializes from a byte string.
         """
@@ -116,10 +113,10 @@ class BaseMessageSerializer(abc.ABC):
 
 
 class MissingSerializer(BaseMessageSerializer):
-    exception: "Exception" = Exception(None)
+    exception: typing.Optional[Exception] = None
 
-    def __init__(self, *args, **kwargs):
-        raise self.exception
+    def __init__(self, *args, **kwargs) -> None:
+        raise self.exception if self.exception else NotImplementedError()
 
 
 class JSONSerializer(BaseMessageSerializer):
@@ -127,17 +124,19 @@ class JSONSerializer(BaseMessageSerializer):
     # thus we must force bytes conversion
     # we use UTF-8 since it is the recommended encoding for interoperability
     # see https://docs.python.org/3/library/json.html#character-encodings
-    def as_bytes(self, message, *args, **kwargs) -> bytes:
-        message = json.dumps(message, *args, **kwargs)
-        return message.encode("utf-8")
+    def as_bytes(self, message: typing.Any, *args, **kwargs) -> bytes:
+        msg = json.dumps(message, *args, **kwargs)
+        return msg.encode("utf-8")
 
-    from_bytes = staticmethod(json.loads)
+    from_bytes = staticmethod(json.loads)  # type: ignore[assignment]
 
 
 # code ready for a future in which msgpack may become an optional dependency
-MsgPackSerializer: typing.Optional[typing.Type[BaseMessageSerializer]] = None
+MsgPackSerializer: typing.Union[
+    typing.Type[BaseMessageSerializer], typing.Type[MissingSerializer]
+]
 try:
-    import msgpack
+    import msgpack  # type: ignore[import-untyped]
 except ImportError as exc:
 
     class _MsgPackSerializer(MissingSerializer):
@@ -147,8 +146,8 @@ except ImportError as exc:
 else:
 
     class __MsgPackSerializer(BaseMessageSerializer):
-        as_bytes = staticmethod(msgpack.packb)
-        from_bytes = staticmethod(msgpack.unpackb)
+        as_bytes = staticmethod(msgpack.packb)  # type: ignore[assignment]
+        from_bytes = staticmethod(msgpack.unpackb)  # type: ignore[assignment]
 
     MsgPackSerializer = __MsgPackSerializer
 
@@ -158,12 +157,12 @@ class SerializersRegistry:
     Serializers registry inspired by that of ``django.core.serializers``.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._registry: typing.Dict[typing.Any, typing.Type[BaseMessageSerializer]] = {}
 
     def register_serializer(
-        self, format, serializer_class: typing.Type[BaseMessageSerializer]
-    ):
+        self, format: typing.Any, serializer_class: typing.Type[BaseMessageSerializer]
+    ) -> None:
         """
         Register a new serializer for given format
         """
@@ -180,7 +179,9 @@ class SerializersRegistry:
 
         self._registry[format] = serializer_class
 
-    def get_serializer(self, format, *args, **kwargs) -> BaseMessageSerializer:
+    def get_serializer(
+        self, format: typing.Any, *args, **kwargs
+    ) -> BaseMessageSerializer:
         try:
             serializer_class = self._registry[format]
         except KeyError:
