@@ -33,8 +33,8 @@ setup(
     install_requires=[
         "redis>=4.6",
         "msgpack~=1.0",
-        "asgiref>=3.2.10,<4",
-        "channels",
+        "asgiref>=3.9.1,<4",
+        "channels>=4.2.2",
     ],
     extras_require={"cryptography": crypto_requires, "tests": test_requires},
 )
