@@ -3,6 +3,7 @@ import collections
 import functools
 import itertools
 import logging
+import os
 import time
 import uuid
 
@@ -21,6 +22,7 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
+OVER_CAPACITY_LEVEL = int(os.environ.get("CHANNELS_REDIS_CAPACITY_LOG_LEVEL", 10))
 
 
 class ChannelLock:
@@ -576,7 +578,8 @@ class RedisChannelLayer(BaseChannelLayer):
                 group_send_lua, len(channel_redis_keys), *channel_redis_keys, *args
             )
             if channels_over_capacity > 0:
-                logger.info(
+                logger.log(
+                    OVER_CAPACITY_LEVEL,
                     "%s of %s channels over capacity in group %s",
                     channels_over_capacity,
                     len(channel_names),
@@ -598,9 +601,9 @@ class RedisChannelLayer(BaseChannelLayer):
         # Connection dict keyed by index to list of redis keys mapped on that index
         connection_to_channel_keys = collections.defaultdict(list)
         # Message dict maps redis key to the message that needs to be send on that key
-        channel_key_to_message = dict()
+        channel_key_to_message = {}
         # Channel key mapped to its capacity
-        channel_key_to_capacity = dict()
+        channel_key_to_capacity = {}
 
         # For each channel
         for channel in channel_names:
