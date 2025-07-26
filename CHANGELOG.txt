@@ -1,3 +1,23 @@
+4.3.0 (2025-07-22)
+------------------
+
+* Added support for Python 3.13.
+
+* Dropped support for EOL Python 3.8.
+
+* Updated Channels dependency to at least v4.2.2.
+
+* Updated asgiref dependency to at least v3.9.1.
+
+* Fixed compatibility with latest versions of pytest-asyncio.
+
+* Renamed internal methods in core channel layer for compatibility with
+  Channels v4.2.1+
+
+* Dropped testing against legacy Channels v3 branch.
+
+* Updated testing against latest redis-py versions.
+
 4.2.1 (2024-11-15)
 ------------------
 

@@ -177,7 +177,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         # Typecheck
         assert isinstance(message, dict), "message is not a dict"
-        assert self.valid_channel_name(channel), "Channel name not valid"
+        assert self.require_valid_channel_name(channel), "Channel name not valid"
         # Make sure the message does not contain reserved keys
         assert "__asgi_channel__" not in message
         # If it's a process-local channel, strip off local part and stick full name in message
@@ -266,7 +266,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         # Make sure the channel name is valid then get the non-local part
         # and thus its index
-        assert self.valid_channel_name(channel)
+        assert self.require_valid_channel_name(channel)
         if "!" in channel:
             real_channel = self.non_local_name(channel)
             assert real_channel.endswith(
@@ -389,7 +389,9 @@ class RedisChannelLayer(BaseChannelLayer):
         Receives a single message off of the channel and returns it.
         """
         # Check channel name
-        assert self.valid_channel_name(channel, receive=True), "Channel name invalid"
+        assert self.require_valid_channel_name(
+            channel, receive=True
+        ), "Channel name invalid"
         # Work out the connection to use
         if "!" in channel:
             assert channel.endswith("!")
@@ -494,8 +496,8 @@ class RedisChannelLayer(BaseChannelLayer):
         Adds the channel name to a group.
         """
         # Check the inputs
-        assert self.valid_group_name(group), "Group name not valid"
-        assert self.valid_channel_name(channel), "Channel name not valid"
+        assert self.require_valid_group_name(group), "Group name not valid"
+        assert self.require_valid_channel_name(channel), "Channel name not valid"
         # Get a connection to the right shard
         group_key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
@@ -510,8 +512,8 @@ class RedisChannelLayer(BaseChannelLayer):
         Removes the channel from the named group if it is in the group;
         does nothing otherwise (does not error)
         """
-        assert self.valid_group_name(group), "Group name not valid"
-        assert self.valid_channel_name(channel), "Channel name not valid"
+        assert self.require_valid_group_name(group), "Group name not valid"
+        assert self.require_valid_channel_name(channel), "Channel name not valid"
         key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
         await connection.zrem(key, channel)
@@ -520,7 +522,7 @@ class RedisChannelLayer(BaseChannelLayer):
         """
         Sends a message to the entire group.
         """
-        assert self.valid_group_name(group), "Group name not valid"
+        assert self.require_valid_group_name(group), "Group name not valid"
         # Retrieve list of all channel names
         key = self._group_key(group)
         connection = self.connection(self.consistent_hash(group))
