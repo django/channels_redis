@@ -71,7 +71,7 @@ Possible options for ``CONFIG`` are listed below.
 ``hosts``
 ~~~~~~~~~
 
-The server(s) to connect to, as either URIs, ``(host, port)`` tuples, or dicts conforming to `redis Connection <https://redis-py.readthedocs.io/en/stable/connections.html#async-client>`_.
+The server(s) to connect to, as either URIs, ``(host, port)`` tuples, or dicts conforming to `redis Connection <https://redis.readthedocs.io/en/stable/connections.html#async-client>`_.
 Defaults to ``redis://localhost:6379``. Pass multiple hosts to enable sharding,
 but note that changing the host list will lose some sharded data.
 
