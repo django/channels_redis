@@ -1,10 +1,22 @@
 import binascii
 import types
+import typing
 
 from redis import asyncio as aioredis
+from redis.asyncio import sentinel as redis_sentinel
+
+if typing.TYPE_CHECKING:
+    from asyncio import AbstractEventLoop
+
+    from redis.asyncio.client import Redis
+    from redis.asyncio.connection import ConnectionPool
+    from typing_extensions import Buffer
+
+    from .core import RedisChannelLayer
+    from .pubsub import RedisPubSubChannelLayer
 
 
-def _consistent_hash(value, ring_size):
+def _consistent_hash(value: typing.Union[str, "Buffer"], ring_size: int) -> int:
     """
     Maps the value to a node value between 0 and 4095
     using CRC, then down to one of the ring nodes.
@@ -20,10 +32,13 @@ def _consistent_hash(value, ring_size):
     return int(bigval / ring_divisor)
 
 
-def _wrap_close(proxy, loop):
+def _wrap_close(
+    proxy: typing.Union["RedisPubSubChannelLayer", "RedisChannelLayer"],
+    loop: "AbstractEventLoop",
+) -> None:
     original_impl = loop.close
 
-    def _wrapper(self, *args, **kwargs):
+    def _wrapper(self, *args, **kwargs) -> typing.Any:
         if loop in proxy._layers:
             layer = proxy._layers[loop]
             del proxy._layers[loop]
@@ -32,10 +47,10 @@ def _wrap_close(proxy, loop):
         self.close = original_impl
         return self.close(*args, **kwargs)
 
-    loop.close = types.MethodType(_wrapper, loop)
+    loop.close = types.MethodType(_wrapper, loop)  # type: ignore[method-assign]
 
 
-async def _close_redis(connection):
+async def _close_redis(connection: "Redis") -> None:
     """
     Handle compatibility with redis-py 4.x and 5.x close methods
     """
@@ -45,7 +60,9 @@ async def _close_redis(connection):
         await connection.close(close_connection_pool=True)
 
 
-def decode_hosts(hosts):
+def decode_hosts(
+    hosts: typing.Union[typing.Iterable[typing.Any], str, bytes, None],
+) -> typing.List[typing.Dict[typing.Any, typing.Any]]:
     """
     Takes the value of the "hosts" argument and returns
     a list of kwargs to use for the Redis connection constructor.
@@ -60,7 +77,7 @@ def decode_hosts(hosts):
         )
 
     # Decode each hosts entry into a kwargs dict
-    result = []
+    result: typing.List[typing.Dict[typing.Any, typing.Any]] = []
     for entry in hosts:
         if isinstance(entry, dict):
             result.append(entry)
@@ -71,7 +88,7 @@ def decode_hosts(hosts):
     return result
 
 
-def create_pool(host):
+def create_pool(host: typing.Dict[str, typing.Any]) -> "ConnectionPool":
     """
     Takes the value of the "host" argument and returns a suited connection pool to
     the corresponding redis instance.
@@ -86,10 +103,10 @@ def create_pool(host):
     if master_name is not None:
         sentinels = host.pop("sentinels")
         sentinel_kwargs = host.pop("sentinel_kwargs", None)
-        return aioredis.sentinel.SentinelConnectionPool(
+        return redis_sentinel.SentinelConnectionPool(
             master_name,
-            aioredis.sentinel.Sentinel(sentinels, sentinel_kwargs=sentinel_kwargs),
-            **host
+            redis_sentinel.Sentinel(sentinels, sentinel_kwargs=sentinel_kwargs),
+            **host,
         )
 
     return aioredis.ConnectionPool(**host)
