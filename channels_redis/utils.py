@@ -52,7 +52,7 @@ def decode_hosts(hosts):
     """
     # If no hosts were provided, return a default value
     if not hosts:
-        return [{"address": "redis://localhost:6379"}]
+        return [{"address": "redis://localhost:6379", "socket_timeout": None}]
     # If they provided just a string, scold them.
     if isinstance(hosts, (str, bytes)):
         raise ValueError(
@@ -63,11 +63,13 @@ def decode_hosts(hosts):
     result = []
     for entry in hosts:
         if isinstance(entry, dict):
-            result.append(entry)
+            host = entry.copy()
         elif isinstance(entry, (tuple, list)):
-            result.append({"host": entry[0], "port": entry[1]})
+            host = {"host": entry[0], "port": entry[1]}
         else:
-            result.append({"address": entry})
+            host = {"address": entry}
+        host.setdefault("socket_timeout", None)
+        result.append(host)
     return result
 
 
