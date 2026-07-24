@@ -1,5 +1,6 @@
 import asyncio
 import random
+import time
 
 import async_timeout
 import pytest
@@ -636,3 +637,68 @@ def test_receive_buffer_respects_capacity():
     assert buff.qsize() == capacity
     messages = [buff.get_nowait() for _ in range(capacity)]
     assert list(range(9900, 10000)) == messages
+
+
+@pytest.mark.asyncio
+async def test_receive_buffer_orphan_is_evicted_after_expiry():
+    """
+    End-to-end reproduction of the receive_buffer leak: `active` and `gone`
+    are two specific channels created from the same layer, so they share the
+    same underlying "real" channel in Redis (same client_prefix). Only
+    `active` is ever received on -- `gone`'s consumer has vanished, as
+    happens e.g. when a client disconnects without Channels calling any
+    cleanup hook for it.
+
+    Without the opportunistic eviction in `receive()`, the message routed to
+    `receive_buffer[gone]` would sit there forever: nothing will ever call
+    `receive(gone)` to drain it, and the dict entry has no other way to go
+    away. This test fails on that unpatched behaviour (the orphan buffer
+    never disappears) and passes once stale, unclaimed buffers are evicted.
+    """
+    expiry = 1
+    channel_layer = RedisChannelLayer(expiry=expiry)
+    try:
+        active = await channel_layer.new_channel()
+        gone = await channel_layer.new_channel()
+
+        # Both messages land on the same shared real-channel key in Redis.
+        await channel_layer.send(gone, {"type": "test.message", "text": "for gone"})
+        await channel_layer.send(active, {"type": "test.message", "text": "for active"})
+
+        assert gone not in channel_layer.receive_buffer
+        # receive(active) pops both messages off Redis (they're on the same
+        # key) and routes the one meant for `gone` into receive_buffer[gone].
+        message = await channel_layer.receive(active)
+        assert message["text"] == "for active"
+        assert gone in channel_layer.receive_buffer  # the leak, caught in the act
+
+        # The orphaned message is now older than `expiry`, i.e. as dead as a
+        # message Redis itself would already have discarded.
+        await asyncio.sleep(expiry + 0.05)
+        await channel_layer.send(active, {"type": "test.message", "text": "again"})
+        await channel_layer.receive(active)  # triggers the opportunistic sweep
+
+        assert gone not in channel_layer.receive_buffer
+    finally:
+        await channel_layer.flush()
+
+
+def test_evict_stale_buffers_removes_empty_buffer_without_waiter():
+    channel_layer = RedisChannelLayer()
+    channel = "specific.xxx!empty"
+    # Auto-vivify an empty buffer, as `receive()`'s `while ... .empty()` check does.
+    assert channel_layer.receive_buffer[channel].empty()
+
+    channel_layer._evict_stale_buffers(time.time())
+
+    assert channel not in channel_layer.receive_buffer
+
+
+def test_evict_stale_buffers_keeps_fresh_non_empty_buffer():
+    channel_layer = RedisChannelLayer()
+    channel = "specific.xxx!fresh"
+    channel_layer.receive_buffer[channel].put_nowait({"type": "test.message"})
+
+    channel_layer._evict_stale_buffers(channel_layer.receive_buffer[channel].last_put)
+
+    assert channel in channel_layer.receive_buffer
