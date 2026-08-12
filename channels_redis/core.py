@@ -33,7 +33,7 @@ class ChannelLock:
 
     def __init__(self):
         self.locks = collections.defaultdict(asyncio.Lock)
-        self.wait_counts = collections.defaultdict(int)
+        self.wait_counts = collections.Counter()
 
     async def acquire(self, channel):
         """
@@ -60,6 +60,11 @@ class ChannelLock:
 
 
 class BoundedQueue(asyncio.Queue):
+    # Timestamp (time.time()) of the last put_nowait() call. Lets
+    # ChannelLayer tell apart a queue whose consumer
+    # vanished (nothing enqueued in a while) from one that's still in use.
+    last_put = 0.0
+
     def put_nowait(self, item):
         if self.full():
             # see: https://github.com/django/channels_redis/issues/212
@@ -69,7 +74,8 @@ class BoundedQueue(asyncio.Queue):
             # that exceed the channel layer capacity than to continue to
             # malloc() forever
             self.get_nowait()
-        return super(BoundedQueue, self).put_nowait(item)
+        self.last_put = time.time()
+        return super().put_nowait(item)
 
 
 class RedisLoopLayer:
@@ -150,6 +156,11 @@ class RedisChannelLayer(BaseChannelLayer):
         self.receive_buffer = collections.defaultdict(
             functools.partial(BoundedQueue, self.capacity)
         )
+        # Per-channel count of coroutines currently blocked in receive().
+        # A buffer with a live waiter must never be evicted from under it.
+        self.receive_waiters = collections.Counter()
+        # Timestamp of the last stale-buffer sweep (throttled to once/expiry).
+        self._last_eviction = 0.0
         # Detached channel cleanup tasks
         self.receive_cleaners = []
         # Per-channel cleanup locks to prevent a receive starting and moving
@@ -248,6 +259,23 @@ class RedisChannelLayer(BaseChannelLayer):
         connection = self.connection(index)
         await connection.zpopmin(self._backup_channel_name(channel))
 
+    def _evict_stale_buffers(self, now):
+        """
+        Drop process-local receive buffers that no coroutine is waiting on and
+        that are either empty or hold only messages older than `expiry`.
+
+        Prevents unbounded growth of `receive_buffer` when messages are
+        dispatched (in `receive`) to specific channels whose consumer has
+        disconnected: those buffers would otherwise never be drained.
+        """
+        for channel in tuple(self.receive_buffer):  # snapshot: we mutate the dict
+            if channel in self.receive_waiters:
+                # A live receive() is using this buffer; never evict it.
+                continue
+            buffer = self.receive_buffer[channel]
+            if buffer.empty() or (now - buffer.last_put > self.expiry):
+                del self.receive_buffer[channel]
+
     async def receive(self, channel):
         """
         Receive the first message that arrives on the channel.
@@ -265,6 +293,15 @@ class RedisChannelLayer(BaseChannelLayer):
             # Enter receiving section
             loop = asyncio.get_running_loop()
             self.receive_count += 1
+            self.receive_waiters[channel] += 1
+            # Opportunistically evict buffers of vanished consumers.
+            # Throttled to at most once per `expiry` window to keep the
+            # O(n) sweep cheap; the current channel is already a waiter,
+            # so it is safe from eviction here.
+            now = time.time()
+            if now - self._last_eviction > self.expiry:
+                self._last_eviction = now
+                self._evict_stale_buffers(now)
             try:
                 if self.receive_count == 1:
                     # If we're the first coroutine in, create the receive lock!
@@ -363,6 +400,9 @@ class RedisChannelLayer(BaseChannelLayer):
 
             finally:
                 self.receive_count -= 1
+                self.receive_waiters[channel] -= 1
+                if self.receive_waiters[channel] < 1:
+                    del self.receive_waiters[channel]
                 # If we were the last out, drop the receive lock
                 if self.receive_count == 0:
                     assert not self.receive_lock.locked()
