@@ -461,12 +461,10 @@ async def test_group_send_capacity_multiple_channels(channel_layer, caplog):
         )
 
 
-@pytest.mark.xfail(
-    reason="""
+@pytest.mark.xfail(reason="""
 Fails with error in redis-py: int() argument must be a string, a bytes-like
 object or a real number, not 'NoneType'. Refs: #348
-"""
-)
+""")
 @pytest.mark.asyncio
 async def test_receive_cancel(channel_layer):
     """
