@@ -3,6 +3,7 @@ import functools
 import logging
 import uuid
 
+import aioredlock
 from redis import asyncio as aioredis
 
 from .serializers import registry
@@ -117,6 +118,11 @@ class RedisPubSubLoopLayer:
             RedisSingleShardConnection(host, self) for host in decode_hosts(hosts)
         ]
 
+        # Create lock manager for all redis connections
+        redis_connections = [shard.host for shard in self._shards]
+        self._lock_manager = aioredlock.Aioredlock()
+        self._lock_manager.redis_connections = redis_connections
+
     def _get_shard(self, channel_or_group_name):
         """
         Return the shard that is used exclusively for this channel or group.
@@ -135,10 +141,21 @@ class RedisPubSubLoopLayer:
         """
         return f"{self.prefix}__group__{group}"
 
+    async def _acquire_lock(self, channel):
+        try:
+            await self._lock_manager.lock(channel, lock_timeout=60)
+        except aioredlock.LockError:
+            logger.debug("Failed to acquire lock on channel %s", channel)
+            return False
+
+        return True
+
     async def _subscribe_to_channel(self, channel):
         self.channels[channel] = asyncio.Queue()
-        shard = self._get_shard(channel)
-        await shard.subscribe(channel)
+
+        if await self._acquire_lock(channel):
+            shard = self._get_shard(channel)
+            await shard.subscribe(channel)
 
     extensions = ["groups", "flush"]
 
