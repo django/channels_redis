@@ -1,3 +1,11 @@
+4.3.1 (unreleased)
+------------------
+
+* Set ``socket_timeout`` to ``None`` by default when decoding Redis hosts,
+  preserving the pre-redis-py 8 behavior required by ``RedisChannelLayer``
+  blocking receive calls.
+
+
 4.3.0 (2025-07-22)
 ------------------
 

@@ -48,7 +48,12 @@ Set up the channel layer in your Django settings file like so:
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
-                "hosts": [("localhost", 6379)],
+                "hosts": [
+                    {
+                        "address": "redis://localhost:6379",
+                        "socket_timeout": None,
+                    }
+                ],
             },
         },
     }
@@ -72,8 +77,31 @@ Possible options for ``CONFIG`` are listed below.
 ~~~~~~~~~
 
 The server(s) to connect to, as either URIs, ``(host, port)`` tuples, or dicts conforming to `redis Connection <https://redis.readthedocs.io/en/stable/connections.html#async-client>`_.
-Defaults to ``redis://localhost:6379``. Pass multiple hosts to enable sharding,
-but note that changing the host list will lose some sharded data.
+Defaults to ``redis://localhost:6379`` with ``socket_timeout`` set to
+``None``. Pass multiple hosts to enable sharding, but note that changing the
+host list will lose some sharded data.
+
+``RedisChannelLayer`` requires ``socket_timeout`` to be ``None`` or greater
+than the layer's blocking receive timeout. ``redis-py`` 8 changes the default
+``socket_timeout`` from ``None`` to ``5`` seconds, which can interrupt
+``RedisChannelLayer`` receive calls. Explicitly configure ``socket_timeout`` if
+you need a different Redis socket read timeout:
+
+.. code-block:: python
+
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [
+                    {
+                        "address": REDIS_URL,
+                        "socket_timeout": None,
+                    }
+                ],
+            },
+        },
+    }
 
 SSL connections that are self-signed (ex: Heroku):
 
