@@ -34,7 +34,7 @@ Installation
 
 **Note:** Prior versions of this package were called ``asgi_redis`` and are
 still available under PyPI as that name if you need them for Channels 1.x projects.
-This package is for Channels 2 projects only.
+This package is for projects using Channels 2 and later.
 
 
 Usage
