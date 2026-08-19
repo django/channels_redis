@@ -290,7 +290,7 @@ Serializers are also responsible for encryption using *symmetric_encryption_keys
 Dependencies
 ------------
 
-Redis server >= 5.0 is required for `channels-redis`. Python 3.8 or higher is required.
+Redis server >= 5.0 is required for `channels-redis`. Python 3.10 or higher is required.
 
 
 Used commands
